@@ -32,7 +32,7 @@ var recordCollection *mongo.Collection
 
 func main() {
 	// 2. MongoDB 연결 설정 (추후 실제 Atlas URI로 변경 필요)
-	clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
+	clientOptions := options.Client().ApplyURI("mongodb+srv://admin:xcLEAmhzIa1ZGOp9@cluster0.txghvae.mongodb.net/?appName=Cluster0")
 	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
 		log.Fatal("MongoDB 연결 실패:", err)
