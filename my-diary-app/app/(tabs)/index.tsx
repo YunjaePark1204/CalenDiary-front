@@ -1,15 +1,16 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { StyleSheet, Text, View, Modal, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Dimensions, StatusBar, LayoutAnimation, UIManager, PanResponder } from 'react-native';
+import { StyleSheet, Text, View, Modal, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Dimensions, StatusBar, LayoutAnimation, UIManager, PanResponder, Image } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Lunar } from 'lunar-javascript';
 import { LinearGradient } from 'expo-linear-gradient'; 
-// ⭐️ 폰트 로딩을 위한 라이브러리
 import * as Font from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+import * as ImagePicker from 'expo-image-picker';
+// ⭐️ 마크다운 렌더링 라이브러리
+import Markdown from 'react-native-markdown-display';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-// 폰트 로딩 중에 스플래시 화면 유지
 SplashScreen.preventAutoHideAsync();
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -23,14 +24,6 @@ const PALETTES = {
   peri: { name: '베리 페리', bg: '#F8F5FA', bgModal: '#FFFFFF', main: '#6667AB', accent: '#B3B3D9', text: '#4A235A', textDim: '#9575CD', holiday: '#FF5252', saturday: '#448AFF', doneBg: '#F3E5F5', doneCheck: '#6667AB', diaryBg: '#FAF8FC', diaryBorder: '#EDE7F6' }
 };
 
-// ⭐️ 불러온 프리텐다드 폰트 리스트
-const FONTS = [
-  { id: 'System', name: '기본' },
-  { id: 'Pretendard-Regular', name: '프리텐다드' },
-  { id: 'Pretendard-Medium', name: '중간체' },
-  { id: 'Pretendard-Bold', name: '굵은체' }
-];
-
 const CATEGORIES = [
   { id: 'c1', name: '📝 일상', color: '#FFD3B6' },
   { id: 'c2', name: '💪 운동', color: '#FF9A9E' },
@@ -41,18 +34,27 @@ const CATEGORIES = [
 const SOLAR_HOLIDAYS = { '01-01': '신정', '03-01': '3·1절', '05-05': '어린이날', '06-06': '현충일', '08-15': '광복절', '10-03': '개천절', '10-09': '한글날', '12-25': '크리스마스' };
 const LUNAR_HOLIDAYS = { '01-01': '설날', '04-08': '부처님오신날', '08-15': '추석' };
 
-const CText = ({ style, font, fontScale = 1, children, ...props }) => {
+// 폰트 자동 적용
+const getFontFamily = (style) => {
   const flatStyle = StyleSheet.flatten(style) || {};
-  const fontSize = (flatStyle.fontSize || 14) * fontScale;
-  return <Text style={[style, { fontFamily: font, fontSize }]} {...props}>{children}</Text>;
-};
-const CTextInput = ({ style, font, fontScale = 1, ...props }) => {
-  const flatStyle = StyleSheet.flatten(style) || {};
-  const fontSize = (flatStyle.fontSize || 14) * fontScale;
-  return <TextInput style={[style, { fontFamily: font, fontSize }]} {...props} />;
+  if (flatStyle.fontWeight === 'bold' || flatStyle.fontWeight === '700' || flatStyle.fontWeight === '900') return 'Pretendard-Bold';
+  if (flatStyle.fontWeight === '500' || flatStyle.fontWeight === '600') return 'Pretendard-Medium';
+  return 'Pretendard-Regular';
 };
 
-const CustomDay = React.memo(({ date, state, marking, onDayPress, theme, font, fontScale }) => {
+const CText = ({ style, fontScale = 1, children, ...props }) => {
+  const flatStyle = StyleSheet.flatten(style) || {};
+  const fontSize = (flatStyle.fontSize || 14) * fontScale;
+  return <Text style={[style, { fontFamily: getFontFamily(style), fontSize }]} {...props}>{children}</Text>;
+};
+
+const CTextInput = ({ style, fontScale = 1, ...props }) => {
+  const flatStyle = StyleSheet.flatten(style) || {};
+  const fontSize = (flatStyle.fontSize || 14) * fontScale;
+  return <TextInput style={[style, { fontFamily: getFontFamily(style), fontSize }]} {...props} />;
+};
+
+const CustomDay = React.memo(({ date, state, marking, onDayPress, theme, fontScale }) => {
   const isHoliday = marking?.isHoliday;
   const isSelected = marking?.selected;
   const isToday = date.dateString === new Date().toISOString().split('T')[0];
@@ -62,10 +64,10 @@ const CustomDay = React.memo(({ date, state, marking, onDayPress, theme, font, f
 
   return (
     <TouchableOpacity style={[styles.dayCell, isSelected && {backgroundColor: theme.accent}, isToday && !isSelected && {borderWidth: 1, borderColor: theme.accent}]} onPress={() => onDayPress(date.dateString)}>
-      <CText font={font} fontScale={fontScale} style={[styles.dayText, {color: theme.text}, state === 'disabled' ? {color: theme.textDim} : isHoliday || isSunday ? {color: theme.holiday} : isSaturday ? {color: theme.saturday} : null, isSelected && {color: 'white', fontWeight: 'bold'}]}>
+      <CText fontScale={fontScale} style={[styles.dayText, {color: theme.text}, state === 'disabled' ? {color: theme.textDim} : isHoliday || isSunday ? {color: theme.holiday} : isSaturday ? {color: theme.saturday} : null, isSelected && {color: 'white', fontWeight: 'bold'}]}>
         {date.day}
       </CText>
-      {isHoliday && <CText font={font} fontScale={fontScale} style={[styles.holidayLabel, {color: theme.holiday}]} numberOfLines={1}>{marking.holidayName}</CText>}
+      {isHoliday && <CText fontScale={fontScale} style={[styles.holidayLabel, {color: theme.holiday}]} numberOfLines={1}>{marking.holidayName}</CText>}
       <View style={styles.linesContainer}>
         {displayLines.map((line, i) => <View key={line.key || i} style={[styles.line, { backgroundColor: line.color }]} />)}
         {marking?.lines?.length > 3 && <View style={[styles.moreDot, {backgroundColor: theme.textDim}]} />}
@@ -76,9 +78,7 @@ const CustomDay = React.memo(({ date, state, marking, onDayPress, theme, font, f
 
 export default function App() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
-  const [appFont, setAppFont] = useState('System'); 
 
-  // ⭐️ [핵심] 폰트 실제 불러오는 로직
   useEffect(() => {
     async function loadFonts() {
       try {
@@ -111,7 +111,6 @@ export default function App() {
   const [appTheme, setAppTheme] = useState('peach'); 
   const [appFontScale, setAppFontScale] = useState(1.0); 
   const [isSettingsVisible, setSettingsVisible] = useState(false);
-
   const THEME = PALETTES[appTheme];
 
   const [selectedCategory, setSelectedCategory] = useState(CATEGORIES[0]);
@@ -122,7 +121,12 @@ export default function App() {
     { id: 'r2', icon: '💻', title: '전공 빡공', tasks: ['컴퓨터 구조 복습', 'C++ 과제 확인'], categoryId: 'c3' },
     { id: 'r3', icon: '🔥', title: 'PPL 루틴', tasks: ['스쿼트 5x5', '레그프레스'], categoryId: 'c2' }
   ]);
+  
   const [isRoutineEditorVisible, setRoutineEditorVisible] = useState(false);
+  const [isEventEditorVisible, setEventEditorVisible] = useState(false);
+  const [isCatManagerVisible, setCatManagerVisible] = useState(false);
+  const [isDiaryPreview, setIsDiaryPreview] = useState(false); // ⭐️ 마크다운 미리보기 토글
+
   const [newRoutineIcon, setNewRoutineIcon] = useState('✨');
   const [newRoutineTitle, setNewRoutineTitle] = useState('');
   const [newRoutineTasksStr, setNewRoutineTasksStr] = useState('');
@@ -132,7 +136,6 @@ export default function App() {
     { id: 're2', title: '통신비 납부 💸', type: 'monthly', day: 25, color: '#4fc3f7' }
   ]);
   
-  const [isEventEditorVisible, setEventEditorVisible] = useState(false);
   const [editingEventId, setEditingEventId] = useState(null);
   const [eventTitle, setEventTitle] = useState('');
   const [eventType, setEventType] = useState('once'); 
@@ -141,19 +144,51 @@ export default function App() {
   const [records, setRecords] = useState({});
   const [currentDiary, setCurrentDiary] = useState('');
   const [currentTodos, setCurrentTodos] = useState([]);
+  const [currentPhotos, setCurrentPhotos] = useState([]); // ⭐️ 다중 사진 배열로 변경
   const [newTodoText, setNewTodoText] = useState('');
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderRelease: (evt, gestureState) => { if (gestureState.dy > 50) saveAndClose(); },
-    })
-  ).current;
+  // ⭐️ 마크다운 스타일 커스텀 적용 (폰트와 테마 색상 연동)
+  const markdownStyles = useMemo(() => ({
+    body: { fontFamily: 'Pretendard-Regular', fontSize: 16 * appFontScale, color: THEME.text, lineHeight: 24 },
+    heading1: { fontFamily: 'Pretendard-Bold', color: THEME.main, marginTop: 10, marginBottom: 5 },
+    heading2: { fontFamily: 'Pretendard-Bold', color: THEME.text, marginTop: 10, marginBottom: 5 },
+    code_block: { backgroundColor: THEME.doneBg, borderRadius: 10, padding: 15, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: THEME.text, borderWidth: 1, borderColor: THEME.diaryBorder },
+    fence: { backgroundColor: THEME.doneBg, borderRadius: 10, padding: 15, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: THEME.text, borderWidth: 1, borderColor: THEME.diaryBorder },
+    code_inline: { backgroundColor: THEME.doneBg, borderRadius: 5, paddingHorizontal: 5, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: THEME.main },
+    blockquote: { borderLeftWidth: 4, borderLeftColor: THEME.main, paddingLeft: 10, backgroundColor: THEME.diaryBg, marginLeft: 0 },
+    list_item: { marginVertical: 3 }
+  }), [THEME, appFontScale]);
 
-  const saveAndClose = () => {
-    setRecords(prev => ({ ...prev, [selectedDate]: { diary: currentDiary, todos: currentTodos } }));
-    setModalVisible(false);
+  // ⭐️ 여러 장 사진 선택 및 잘림 방지
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true, // 여러 장 선택 허용, 크롭 자동 비활성화됨
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      const newUris = result.assets.map(asset => asset.uri);
+      setCurrentPhotos(prev => [...prev, ...newUris]);
+    }
   };
+
+  const deleteEvent = (id) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setRecurringEvents(recurringEvents.filter(e => e.id !== id));
+  };
+
+  const saveAndClose = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // ⭐️ 다중 사진 배열 함께 저장
+    setRecords(prev => ({ ...prev, [selectedDate]: { diary: currentDiary, todos: currentTodos, photos: currentPhotos } }));
+    setIsDiaryPreview(false); // 닫을 때 미리보기 초기화
+    setModalVisible(false);
+  }, [selectedDate, currentDiary, currentTodos, currentPhotos]);
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderRelease: (evt, gestureState) => { if (gestureState.dy > 50) saveAndClose(); },
+  })).current;
 
   const toggleRoutine = (routine) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -194,12 +229,15 @@ export default function App() {
     if (!eventTitle.trim()) return;
     const [y, m, d] = selectedDate.split('-').map(Number);
     const dateObj = new Date(y, m - 1, d);
-    let newEvent = { id: editingEventId || 'ev_' + Date.now(), title: eventTitle, type: eventType };
-    if (eventType === 'once') { newEvent.date = selectedDate; newEvent.color = '#81c784'; }
+    let newEvent = { id: editingEventId || 'ev_' + Date.now(), title: eventTitle, type: eventType, color: '#81c784' };
+    
+    if (eventType === 'once') { newEvent.date = selectedDate; }
+    else if (eventType === 'daily') { newEvent.startDate = selectedDate; }
     else if (eventType === 'yearly') { newEvent.month = m; newEvent.day = d; newEvent.color = '#ff8a65'; }
     else if (eventType === 'monthly') { newEvent.day = d; newEvent.color = '#4fc3f7'; }
     else if (eventType === 'weekly') { newEvent.dayOfWeek = dateObj.getDay(); newEvent.color = '#ba68c8'; }
     else if (eventType === 'interval') { newEvent.interval = parseInt(eventInterval) || 1; newEvent.startDate = selectedDate; newEvent.color = '#aed581'; }
+    
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     if (editingEventId) setRecurringEvents(recurringEvents.map(e => e.id === editingEventId ? newEvent : e));
     else setRecurringEvents([...recurringEvents, newEvent]);
@@ -212,6 +250,7 @@ export default function App() {
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     recurringEvents.forEach(event => {
       if (event.type === 'once' && event.date === dateStr) events.push(event);
+      else if (event.type === 'daily' && currentDateObj >= new Date(event.startDate)) events.push(event);
       else if (event.type === 'yearly' && event.month === month && event.day === day) events.push(event);
       else if (event.type === 'monthly' && event.day === day) events.push(event);
       else if (event.type === 'weekly' && currentDateObj.getDay() === event.dayOfWeek) events.push(event);
@@ -240,7 +279,7 @@ export default function App() {
     }
     Object.keys(records).forEach(date => {
       if (!marks[date]) marks[date] = { lines: [] };
-      if (records[date].diary || (records[date].todos && records[date].todos.length > 0)) {
+      if (records[date].diary || (records[date].todos && records[date].todos.length > 0) || (records[date].photos && records[date].photos.length > 0)) {
         if(!marks[date].lines.find(l => l.key === 'record')) marks[date].lines.push({ key: 'record', color: THEME.main });
       }
     });
@@ -253,8 +292,16 @@ export default function App() {
 
   const handleDayPress = useCallback((dateString) => {
     if (selectedDate === dateString) {
-      if (records[dateString]) { setCurrentDiary(records[dateString].diary || ''); setCurrentTodos(records[dateString].todos || []); }
-      else { setCurrentDiary(''); setCurrentTodos([]); }
+      if (records[dateString]) { 
+        setCurrentDiary(records[dateString].diary || ''); 
+        setCurrentTodos(records[dateString].todos || []); 
+        setCurrentPhotos(records[dateString].photos || []); 
+      } else { 
+        setCurrentDiary(''); 
+        setCurrentTodos([]); 
+        setCurrentPhotos([]);
+      }
+      setIsDiaryPreview(false); // 열 때 항상 편집 모드로
       setModalVisible(true);
     } else {
       setSelectedDate(dateString);
@@ -272,12 +319,12 @@ export default function App() {
   };
 
   const renderDay = useCallback((props) => {
-    return <CustomDay {...props} onDayPress={handleDayPress} theme={THEME} font={appFont} fontScale={appFontScale} />;
-  }, [handleDayPress, THEME, appFont, appFontScale]);
+    return <CustomDay {...props} onDayPress={handleDayPress} theme={THEME} fontScale={appFontScale} />;
+  }, [handleDayPress, THEME, appFontScale]);
 
   const [sy, sm, sd] = selectedDate.split('-').map(Number);
   const todaySummaryEvents = getRecurringEventsForDate(sy, sm, sd);
-  const todaySummaryRecords = records[selectedDate] || { todos: [], diary: '' };
+  const todaySummaryRecords = records[selectedDate] || { todos: [], diary: '', photos: [] };
 
   const filteredDatesWithTodos = useMemo(() => {
     return Object.keys(records).filter(date => {
@@ -288,7 +335,6 @@ export default function App() {
     }).sort((a,b) => b.localeCompare(a));
   }, [records, collectionFilter]);
 
-  // 폰트 로딩 대기
   if (!fontsLoaded) return null;
 
   return (
@@ -297,15 +343,11 @@ export default function App() {
       
       <View style={[styles.calendarArea, {backgroundColor: THEME.bg}]}>
         <View style={styles.floatingHeader}>
-          <TouchableOpacity onPress={() => setSettingsVisible(true)} style={{flex: 1, alignItems: 'flex-start', paddingLeft: 10}}>
-            <CText font={appFont} fontScale={appFontScale} style={{fontSize: 24}}>⚙️</CText>
-          </TouchableOpacity>
+          <View style={{flex: 1}} />
           <TouchableOpacity style={[styles.headerButton, { shadowColor: THEME.main }]} onPress={() => { setPickerYear(displayedYear); setMonthPickerVisible(true); }}>
-            <CText font={appFont} fontScale={appFontScale} style={[styles.headerTitle, {color: THEME.main}]}>{displayedMonthName.split('-')[0]}년 {parseInt(displayedMonthName.split('-')[1])}월 ▼</CText>
+            <CText fontScale={appFontScale} style={[styles.headerTitle, {color: THEME.main}]}>{displayedMonthName.split('-')[0]}년 {parseInt(displayedMonthName.split('-')[1])}월 ▼</CText>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setTodoModalVisible(true)} style={{flex: 1, alignItems: 'flex-end', paddingRight: 10}}>
-            <CText font={appFont} fontScale={appFontScale} style={{fontSize: 24}}>📋</CText>
-          </TouchableOpacity>
+          <View style={{flex: 1}} />
         </View>
 
         <Calendar
@@ -320,34 +362,62 @@ export default function App() {
       <View style={[styles.summaryArea, {backgroundColor: THEME.bgModal}]}>
         <LinearGradient colors={[`${THEME.bgModal}00`, THEME.bgModal]} style={styles.summaryGradient} />
         <View style={styles.summaryHeader}>
-          <CText font={appFont} fontScale={appFontScale} style={[styles.summaryDateText, {color: THEME.text}]}>{parseInt(sm)}월 {parseInt(sd)}일의 기록</CText>
+          <CText fontScale={appFontScale} style={[styles.summaryDateText, {color: THEME.text}]}>{parseInt(sm)}월 {parseInt(sd)}일의 기록</CText>
           <TouchableOpacity onPress={() => handleDayPress(selectedDate)} style={[styles.openDetailBtn, {backgroundColor: THEME.main}]}>
-            <CText font={appFont} fontScale={appFontScale} style={styles.openDetailBtnText}>✏️ 다이어리 열기</CText>
+            <CText fontScale={appFontScale} style={styles.openDetailBtnText}>✏️ 다이어리 열기</CText>
           </TouchableOpacity>
         </View>
 
         <ScrollView style={styles.summaryContent} showsVerticalScrollIndicator={false}>
-          {todaySummaryEvents.length === 0 && todaySummaryRecords.todos.length === 0 && !todaySummaryRecords.diary && (
-            <CText font={appFont} fontScale={appFontScale} style={[styles.emptySummaryText, {color: THEME.textDim}]}>일정이 없습니다. 두 번 눌러서 일기를 써보세요! ✨</CText>
+          {todaySummaryEvents.length === 0 && todaySummaryRecords.todos.length === 0 && !todaySummaryRecords.diary && todaySummaryRecords.photos?.length === 0 && (
+            <CText fontScale={appFontScale} style={[styles.emptySummaryText, {color: THEME.textDim}]}>일정이 없습니다. 두 번 눌러서 일기를 써보세요! ✨</CText>
           )}
           {todaySummaryEvents.map((ev, idx) => (
             <View key={idx} style={[styles.summaryItemBox, {backgroundColor: THEME.bg}]}>
               <View style={[styles.summaryColorBar, {backgroundColor: ev.color}]} />
-              <CText font={appFont} fontScale={appFontScale} style={[styles.summaryItemText, {color: THEME.text}]}>{ev.title}</CText>
+              <CText fontScale={appFontScale} style={[styles.summaryItemText, {color: THEME.text}]}>{ev.title}</CText>
             </View>
           ))}
           {todaySummaryRecords.todos.map((todo) => (
             <View key={todo.id} style={[styles.summaryItemBox, {backgroundColor: THEME.bg}]}>
-              <CText font={appFont} fontScale={appFontScale} style={{fontSize: 16, marginRight: 10, color: todo.category?.color || THEME.main}}>{todo.done ? '🌸' : '⚪️'}</CText>
-              <CText font={appFont} fontScale={appFontScale} style={[styles.summaryItemText, {color: THEME.text}, todo.done && {textDecorationLine: 'line-through', color: THEME.textDim}]}>{todo.text}</CText>
+              <CText fontScale={appFontScale} style={{fontSize: 16, marginRight: 10, color: todo.category?.color || THEME.main}}>{todo.done ? '🌸' : '⚪️'}</CText>
+              <CText fontScale={appFontScale} style={[styles.summaryItemText, {color: THEME.text}, todo.done && {textDecorationLine: 'line-through', color: THEME.textDim}]}>{todo.text}</CText>
             </View>
           ))}
+          
+          {/* ⭐️ 메인 화면 요약: 노션급 마크다운 렌더링 적용 */}
           {todaySummaryRecords.diary ? (
             <View style={[styles.summaryDiaryBox, {backgroundColor: THEME.doneBg}]}>
-              <CText font={appFont} fontScale={appFontScale} style={[styles.summaryDiaryText, {color: THEME.text}]} numberOfLines={3}>{todaySummaryRecords.diary}</CText>
+              <Markdown style={markdownStyles}>
+                {todaySummaryRecords.diary}
+              </Markdown>
             </View>
           ) : null}
+
+          {/* ⭐️ 메인 화면 사진 슬라이드 뷰 */}
+          {todaySummaryRecords.photos && todaySummaryRecords.photos.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop: 15, marginBottom: 15}}>
+              {todaySummaryRecords.photos.map((uri, idx) => (
+                <Image key={idx} source={{ uri }} style={{width: 250, height: 250, borderRadius: 15, marginRight: 10}} resizeMode="contain" />
+              ))}
+            </ScrollView>
+          )}
         </ScrollView>
+
+        <View style={styles.bottomTabBar}>
+          <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.tabBtn}>
+            <CText fontScale={appFontScale} style={{fontSize: 24}}>⚙️</CText>
+            <CText fontScale={appFontScale} style={{fontSize: 10, color: THEME.textDim}}>설정</CText>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.tabBtn}>
+            <CText fontScale={appFontScale} style={{fontSize: 24}}>📅</CText>
+            <CText fontScale={appFontScale} style={{fontSize: 10, color: THEME.main, fontWeight: 'bold'}}>메인</CText>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setTodoModalVisible(true)} style={styles.tabBtn}>
+            <CText fontScale={appFontScale} style={{fontSize: 24}}>📋</CText>
+            <CText fontScale={appFontScale} style={{fontSize: 10, color: THEME.textDim}}>모아보기</CText>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* 설정 모달 */}
@@ -355,20 +425,20 @@ export default function App() {
         <View style={styles.editorOverlay}>
           <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
             <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20}}>
-              <CText font={appFont} fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>앱 설정 ⚙️</CText>
-              <TouchableOpacity onPress={() => setSettingsVisible(false)}><CText font={appFont} fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
+              <CText fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>앱 설정 ⚙️</CText>
+              <TouchableOpacity onPress={() => setSettingsVisible(false)}><CText fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
             </View>
 
-            <CText font={appFont} fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🔍 글씨 크기</CText>
+            <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🔍 글씨 크기</CText>
             <View style={{flexDirection: 'row', marginBottom: 20}}>
               {[{label: '작게', scale: 0.85}, {label: '보통', scale: 1.0}, {label: '크게', scale: 1.15}].map(opt => (
                 <TouchableOpacity key={opt.label} onPress={() => setAppFontScale(opt.scale)} style={[styles.typeChip, {backgroundColor: THEME.bg, borderColor: '#eee'}, appFontScale === opt.scale && {backgroundColor: THEME.main, borderColor: THEME.main}]}>
-                  <CText font={appFont} fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, appFontScale === opt.scale && {color: 'white'}]}>{opt.label}</CText>
+                  <CText fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, appFontScale === opt.scale && {color: 'white'}]}>{opt.label}</CText>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <CText font={appFont} fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 15}}>🎨 테마 색상 (Pantone)</CText>
+            <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 15}}>🎨 테마 색상 (Pantone)</CText>
             <View style={{flexDirection: 'row', justifyContent: 'space-around', marginBottom: 25}}>
               {Object.keys(PALETTES).map(themeKey => (
                 <TouchableOpacity key={themeKey} onPress={() => setAppTheme(themeKey)} 
@@ -377,42 +447,38 @@ export default function App() {
               ))}
             </View>
 
-            <CText font={appFont} fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>✍️ 앱 폰트 변경</CText>
-            <View style={{flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15}}>
-              {FONTS.map(f => (
-                <TouchableOpacity key={f.id} onPress={() => setAppFont(f.id)} style={[styles.typeChip, {backgroundColor: THEME.bg, borderColor: '#eee'}, appFont === f.id && {backgroundColor: THEME.main, borderColor: THEME.main}]}>
-                  <CText font={f.id} fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, appFont === f.id && {color: 'white'}]}>{f.name}</CText>
-                </TouchableOpacity>
-              ))}
-            </View>
-
             <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={() => setSettingsVisible(false)}>
-              <CText font={appFont} fontScale={appFontScale} style={styles.saveButtonText}>적용하기</CText>
+              <CText fontScale={appFontScale} style={styles.saveButtonText}>적용하기</CText>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* 투두메이트 모아보기 모달 */}
+      {/* 할 일 모아보기 모달 */}
       <Modal visible={isTodoModalVisible} animationType="slide" presentationStyle="pageSheet">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: THEME.bgModal }}>
           <LinearGradient colors={[`${THEME.main}10`, THEME.bgModal]} style={styles.modalBgGradient}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderInner}>
-                <CText font={appFont} fontScale={appFontScale} style={[styles.modalTitle, {color: THEME.text}]}>할 일 모아보기 📋</CText>
-                <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main, width: 80}]} onPress={() => setTodoModalVisible(false)}>
-                  <CText font={appFont} fontScale={appFontScale} style={styles.saveButtonText}>닫기</CText>
-                </TouchableOpacity>
+                <CText fontScale={appFontScale} style={[styles.modalTitle, {color: THEME.text}]}>할 일 모아보기 📋</CText>
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                  <TouchableOpacity onPress={() => setRoutineEditorVisible(true)} style={{marginRight: 15}}>
+                    <CText fontScale={appFontScale} style={{color: THEME.main, fontWeight: 'bold'}}>⚙️ 루틴 설정</CText>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main, width: 80}]} onPress={() => setTodoModalVisible(false)}>
+                    <CText fontScale={appFontScale} style={styles.saveButtonText}>닫기</CText>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
             <View style={{paddingHorizontal: 20, marginBottom: 15}}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{flexDirection: 'row'}}>
                 <TouchableOpacity onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCollectionFilter('ALL'); }} style={[styles.filterChip, collectionFilter === 'ALL' && {backgroundColor: THEME.text}]}>
-                  <CText font={appFont} fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === 'ALL' && {color: 'white'}]}>전체 보기</CText>
+                  <CText fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === 'ALL' && {color: 'white'}]}>전체 보기</CText>
                 </TouchableOpacity>
                 {CATEGORIES.map(cat => (
                   <TouchableOpacity key={cat.id} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCollectionFilter(cat.id); }} style={[styles.filterChip, collectionFilter === cat.id && {backgroundColor: cat.color, borderColor: cat.color}]}>
-                    <CText font={appFont} fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === cat.id && {color: 'white'}]}>{cat.name}</CText>
+                    <CText fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === cat.id && {color: 'white'}]}>{cat.name}</CText>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -423,21 +489,47 @@ export default function App() {
                 if (displayTodos.length === 0) return null;
                 return (
                   <View key={date} style={{marginBottom: 25}}>
-                    <CText font={appFont} fontScale={appFontScale} style={{fontSize: 18, fontWeight: '900', color: THEME.main, marginBottom: 10}}>{date.replace(/-/g, ' / ')}</CText>
+                    <CText fontScale={appFontScale} style={{fontSize: 18, fontWeight: '900', color: THEME.main, marginBottom: 10}}>{date.replace(/-/g, ' / ')}</CText>
                     {displayTodos.map(todo => (
                       <View key={todo.id} style={[styles.todoItemRow, {backgroundColor: THEME.bgModal, borderLeftColor: todo.category?.color || THEME.main, padding: 12}]}>
                         <TouchableOpacity onPress={() => toggleGlobalTodo(date, todo.id)} style={styles.todoCheckArea}>
                           <View style={[styles.stickerCheck, todo.done && {backgroundColor: todo.category?.color || THEME.main, borderColor: 'white'}, {width: 26, height: 26, borderRadius: 13}]}>
-                            {todo.done && <CText font={appFont} fontScale={appFontScale} style={[styles.stickerCheckIcon, {fontSize: 12}]}>🎀</CText>}
+                            {todo.done && <CText fontScale={appFontScale} style={[styles.stickerCheckIcon, {fontSize: 12}]}>🎀</CText>}
                           </View>
                         </TouchableOpacity>
-                        <CText font={appFont} fontScale={appFontScale} style={[styles.todoText, {color: THEME.text}, todo.done && {textDecorationLine: 'line-through', color: THEME.textDim}]}>{todo.text}</CText>
+                        <CText fontScale={appFontScale} style={[styles.todoText, {color: THEME.text}, todo.done && {textDecorationLine: 'line-through', color: THEME.textDim}]}>{todo.text}</CText>
                       </View>
                     ))}
                   </View>
                 )
               })}
             </ScrollView>
+
+            {isRoutineEditorVisible && (
+              <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999}]}>
+                <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
+                  <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20}}>
+                    <CText fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>루틴 관리 ⚡</CText>
+                    <TouchableOpacity onPress={() => setRoutineEditorVisible(false)}><CText fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
+                  </View>
+                  <ScrollView style={{maxHeight: 200}}>
+                    {customRoutines.map(r => (
+                      <View key={r.id} style={styles.editorRoutineRow}>
+                        <CText fontScale={appFontScale} style={{flex:1, fontWeight:'bold'}}>{r.icon} {r.title}</CText>
+                        <TouchableOpacity onPress={() => deleteRoutine(r.id)}><CText fontScale={appFontScale} style={{color:'red'}}>삭제</CText></TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                  <View style={{marginTop: 15}}>
+                    <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 10}]} placeholder="루틴 이름 (예: 아침 운동)" value={newRoutineTitle} onChangeText={setNewRoutineTitle} />
+                    <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 10}]} placeholder="할 일 목록 (쉼표로 구분)" value={newRoutineTasksStr} onChangeText={setNewRoutineTasksStr} />
+                    <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={addNewRoutine}>
+                      <CText fontScale={appFontScale} style={styles.saveButtonText}>추가하기</CText>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
           </LinearGradient>
         </KeyboardAvoidingView>
       </Modal>
@@ -449,9 +541,9 @@ export default function App() {
           <View style={[styles.bottomSheetContainer, {backgroundColor: THEME.bgModal}]}>
             <View style={styles.bottomSheetHandle} />
             <View style={styles.pickerYearRow}>
-              <TouchableOpacity style={styles.arrowBtn} onPress={() => setPickerYear(y => y - 1)}><CText font={appFont} fontScale={appFontScale} style={[styles.arrowText, {color: THEME.main}]}>◀</CText></TouchableOpacity>
-              <CText font={appFont} fontScale={appFontScale} style={[styles.pickerYearText, {color: THEME.text}]}>{pickerYear}년</CText>
-              <TouchableOpacity style={styles.arrowBtn} onPress={() => setPickerYear(y => y + 1)}><CText font={appFont} fontScale={appFontScale} style={[styles.arrowText, {color: THEME.main}]}>▶</CText></TouchableOpacity>
+              <TouchableOpacity style={styles.arrowBtn} onPress={() => setPickerYear(y => y - 1)}><CText fontScale={appFontScale} style={[styles.arrowText, {color: THEME.main}]}>◀</CText></TouchableOpacity>
+              <CText fontScale={appFontScale} style={[styles.pickerYearText, {color: THEME.text}]}>{pickerYear}년</CText>
+              <TouchableOpacity style={styles.arrowBtn} onPress={() => setPickerYear(y => y + 1)}><CText fontScale={appFontScale} style={[styles.arrowText, {color: THEME.main}]}>▶</CText></TouchableOpacity>
             </View>
             <View style={styles.pickerMonthGrid}>
               {[...Array(12)].map((_, i) => (
@@ -475,51 +567,122 @@ export default function App() {
             <View {...panResponder.panHandlers} style={styles.modalHeader}>
               <View style={styles.swipeIndicator} />
               <View style={styles.modalHeaderInner}>
-                <CText font={appFont} fontScale={appFontScale} style={[styles.modalTitle, {color: THEME.text}]}>{selectedDate}</CText>
+                <CText fontScale={appFontScale} style={[styles.modalTitle, {color: THEME.text}]}>{selectedDate}</CText>
                 <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main, width: 80}]} onPress={saveAndClose}>
-                  <CText font={appFont} fontScale={appFontScale} style={styles.saveButtonText}>완료</CText>
+                  <CText fontScale={appFontScale} style={styles.saveButtonText}>완료</CText>
                 </TouchableOpacity>
               </View>
             </View>
             <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}>
               <View style={styles.todayEventBox}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
-                  <CText font={appFont} fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text}]}>✨ 캘린더 일정</CText>
-                  <TouchableOpacity onPress={() => openEventEditor()}><CText font={appFont} fontScale={appFontScale} style={{color: THEME.main, fontWeight: 'bold'}}>+ 일정 추가</CText></TouchableOpacity>
+                  <CText fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text}]}>✨ 캘린더 일정</CText>
+                  <TouchableOpacity onPress={() => openEventEditor()}><CText fontScale={appFontScale} style={{color: THEME.main, fontWeight: 'bold'}}>+ 일정 추가</CText></TouchableOpacity>
                 </View>
                 {todaySummaryEvents.map((ev, idx) => (
                   <View key={idx} style={{flexDirection: 'row', alignItems: 'center', marginBottom: 8}}>
-                    <View style={[styles.tagBadge, { backgroundColor: ev.color + '20' }]}><CText font={appFont} fontScale={appFontScale} style={{color: ev.color, fontWeight: 'bold'}}>{ev.title}</CText></View>
-                    <TouchableOpacity onPress={() => openEventEditor(ev)} style={{marginLeft: 5}}><CText font={appFont} fontScale={appFontScale}>✏️</CText></TouchableOpacity>
+                    <View style={[styles.tagBadge, { backgroundColor: ev.color + '20' }]}><CText fontScale={appFontScale} style={{color: ev.color, fontWeight: 'bold'}}>{ev.title}</CText></View>
+                    <TouchableOpacity onPress={() => openEventEditor(ev)} style={{marginLeft: 10}}><CText fontScale={appFontScale}>✏️</CText></TouchableOpacity>
+                    {/* ⭐️ 삭제 기능 추가 */}
+                    <TouchableOpacity onPress={() => deleteEvent(ev.id)} style={{marginLeft: 10}}><CText fontScale={appFontScale}>❌</CText></TouchableOpacity>
                   </View>
                 ))}
               </View>
-              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15, marginTop: 10}}>
-                <CText font={appFont} fontScale={appFontScale} style={[styles.sectionTitle, {marginBottom: 0, color: THEME.text}]}>⚡ 루틴 추가</CText>
-                <TouchableOpacity onPress={() => setRoutineEditorVisible(true)}><CText font={appFont} fontScale={appFontScale} style={{color: THEME.main, fontWeight: 'bold'}}>⚙️ 루틴 설정</CText></TouchableOpacity>
-              </View>
+
+              <CText fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text, marginTop: 10, marginBottom: 10}]}>⚡ 루틴 추가</CText>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.routineScroll}>
                 {customRoutines.map((routine) => (
                   <TouchableOpacity key={routine.id} style={[styles.routineChip, {backgroundColor: THEME.bgModal}, currentTodos.some(t => t.routineId === routine.id) && {backgroundColor: THEME.main}]} onPress={() => toggleRoutine(routine)}>
-                    <CText font={appFont} fontScale={appFontScale} style={[styles.routineChipText, {color: THEME.text}, currentTodos.some(t => t.routineId === routine.id) && {color: 'white'}]}>{routine.icon} {routine.title}</CText>
+                    <CText fontScale={appFontScale} style={[styles.routineChipText, {color: THEME.text}, currentTodos.some(t => t.routineId === routine.id) && {color: 'white'}]}>{routine.icon} {routine.title}</CText>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-              <CText font={appFont} fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text}]}>✅ 할 일 (투두)</CText>
+
+              <CText fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text}]}>✅ 할 일 (투두)</CText>
               <View style={{marginBottom: 10}}><ScrollView horizontal showsHorizontalScrollIndicator={false} style={{flexDirection: 'row'}}>{CATEGORIES.map(cat => (
-                <TouchableOpacity key={cat.id} onPress={() => setSelectedCategory(cat)} style={[styles.filterChip, selectedCategory.id === cat.id && {backgroundColor: cat.color, borderColor: cat.color}]}><CText font={appFont} fontScale={appFontScale} style={[styles.filterChipText, selectedCategory.id === cat.id && {color: 'white'}]}>{cat.name}</CText></TouchableOpacity>
+                <TouchableOpacity key={cat.id} onPress={() => setSelectedCategory(cat)} style={[styles.filterChip, selectedCategory.id === cat.id && {backgroundColor: cat.color, borderColor: cat.color}]}><CText fontScale={appFontScale} style={[styles.filterChipText, selectedCategory.id === cat.id && {color: 'white'}]}>{cat.name}</CText></TouchableOpacity>
               ))}</ScrollView></View>
-              <View style={styles.inputRow}><CTextInput font={appFont} fontScale={appFontScale} style={[styles.inputBox, {backgroundColor: THEME.bgModal, color: THEME.text}]} placeholder={`${selectedCategory.name} 할 일을 입력하세요`} value={newTodoText} onChangeText={setNewTodoText} onSubmitEditing={() => { if(newTodoText) { setCurrentTodos([...currentTodos, { id: Date.now(), text: newTodoText, done: false, category: selectedCategory }]); setNewTodoText(''); } }} /></View>
+              <View style={styles.inputRow}><CTextInput fontScale={appFontScale} style={[styles.inputBox, {backgroundColor: THEME.bgModal, color: THEME.text}]} placeholder={`${selectedCategory.name} 할 일을 입력하세요`} value={newTodoText} onChangeText={setNewTodoText} onSubmitEditing={() => { if(newTodoText) { setCurrentTodos([...currentTodos, { id: Date.now(), text: newTodoText, done: false, category: selectedCategory }]); setNewTodoText(''); } }} /></View>
               {currentTodos.map((todo) => (
                 <View key={todo.id} style={[styles.todoItemRow, {backgroundColor: THEME.bgModal, borderLeftColor: todo.category?.color || THEME.main}]}>
-                  <TouchableOpacity onPress={() => toggleTodo(todo.id)} style={styles.todoCheckArea}><View style={[styles.stickerCheck, todo.done && {backgroundColor: todo.category?.color || THEME.main, borderColor: 'white'}]}>{todo.done && <CText font={appFont} fontScale={appFontScale} style={styles.stickerCheckIcon}>🎀</CText>}</View></TouchableOpacity>
-                  <CText font={appFont} fontScale={appFontScale} style={[styles.todoText, {color: THEME.text}, todo.done && {textDecorationLine: 'line-through', color: THEME.textDim}]}>{todo.text}</CText>
-                  <TouchableOpacity onPress={() => setCurrentTodos(currentTodos.filter(t => t.id !== todo.id))} style={styles.todoDelete}><CText font={appFont} fontScale={appFontScale}>❌</CText></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setCurrentTodos(currentTodos.map(x => x.id === todo.id ? {...x, done: !x.done} : x))} style={styles.todoCheckArea}><View style={[styles.stickerCheck, todo.done && {backgroundColor: todo.category?.color || THEME.main, borderColor: 'white'}]}>{todo.done && <CText fontScale={appFontScale} style={styles.stickerCheckIcon}>🎀</CText>}</View></TouchableOpacity>
+                  <CText fontScale={appFontScale} style={[styles.todoText, {color: THEME.text}, todo.done && {textDecorationLine: 'line-through', color: THEME.textDim}]}>{todo.text}</CText>
+                  <TouchableOpacity onPress={() => setCurrentTodos(currentTodos.filter(t => t.id !== todo.id))} style={styles.todoDelete}><CText fontScale={appFontScale}>❌</CText></TouchableOpacity>
                 </View>
               ))}
-              <CText font={appFont} fontScale={appFontScale} style={[styles.sectionTitle, { marginTop: 25, color: THEME.text }]}>📖 다이어리</CText>
-              <View style={[styles.diaryInputContainer, { flex: 1, backgroundColor: THEME.diaryBg, borderColor: THEME.diaryBorder }]}><CTextInput font={appFont} fontScale={appFontScale} style={[styles.diaryInput, {color: THEME.text}]} placeholder="오늘 하루는 어땠나요?" multiline={true} value={currentDiary} onChangeText={setCurrentDiary} /></View>
+
+              {/* ⭐️ 노션급 다이어리 (마크다운 적용) */}
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 25}}>
+                <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 0, color: THEME.text}]}>📖 다이어리</CText>
+                <TouchableOpacity onPress={() => setIsDiaryPreview(!isDiaryPreview)}>
+                  <CText fontScale={appFontScale} style={{color: THEME.main, fontWeight: 'bold'}}>{isDiaryPreview ? '✏️ 수정하기' : '👀 미리보기'}</CText>
+                </TouchableOpacity>
+              </View>
+
+              {isDiaryPreview ? (
+                <View style={[styles.diaryInputContainer, { flex: 1, backgroundColor: THEME.diaryBg, borderColor: THEME.diaryBorder, padding: 20 }]}>
+                  <Markdown style={markdownStyles}>
+                    {currentDiary || '작성된 내용이 없습니다.'}
+                  </Markdown>
+                </View>
+              ) : (
+                <View style={[styles.diaryInputContainer, { flex: 1, backgroundColor: THEME.diaryBg, borderColor: THEME.diaryBorder }]}>
+                  <CTextInput fontScale={appFontScale} style={[styles.diaryInput, {color: THEME.text}]} placeholder="노션처럼 마크다운으로 기록해보세요! (예: **굵게**, - 리스트)" multiline={true} value={currentDiary} onChangeText={setCurrentDiary} />
+                </View>
+              )}
+
+              {/* ⭐️ 사진 첨부 영역을 맨 아래로 배치 */}
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 30, marginBottom: 10}}>
+                <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0, color: THEME.text}]}>📸 사진 기록</CText>
+              </View>
+              
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 10}}>
+                {currentPhotos.map((uri, index) => (
+                  <View key={index} style={{marginRight: 10, position: 'relative'}}>
+                    <Image source={{ uri }} style={{width: 250, height: 250, borderRadius: 15}} resizeMode="contain" />
+                    <TouchableOpacity style={styles.photoDeleteBtn} onPress={() => setCurrentPhotos(prev => prev.filter((_, i) => i !== index))}>
+                      <Text style={{color:'white', fontWeight:'bold'}}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <TouchableOpacity style={[styles.emptyPhotoBox, {width: currentPhotos.length > 0 ? 100 : width - 50}]} onPress={pickImage}>
+                  <CText fontScale={appFontScale} style={{color: THEME.textDim, fontSize: currentPhotos.length > 0 ? 30 : 14}}>
+                    {currentPhotos.length > 0 ? '+' : '여러 장의 사진을 선택해서 추가해보세요 📸'}
+                  </CText>
+                </TouchableOpacity>
+              </ScrollView>
+
             </ScrollView>
+
+            {/* 일정 추가 서브 모달 */}
+            {isEventEditorVisible && (
+              <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999}]}>
+                <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
+                  <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20}}>
+                    <CText fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>일정 추가 📅</CText>
+                    <TouchableOpacity onPress={() => setEventEditorVisible(false)}><CText fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
+                  </View>
+                  <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 15}]} placeholder="일정 이름" value={eventTitle} onChangeText={setEventTitle} />
+                  
+                  <View style={styles.typeSelectorRow}>
+                    {[{t:'once',l:'한 번'}, {t:'daily',l:'매일'}, {t:'weekly',l:'매주'}, {t:'monthly',l:'매월'}, {t:'yearly',l:'매년'}, {t:'interval',l:'N일 간격'}].map(o => (
+                      <TouchableOpacity key={o.t} onPress={() => setEventType(o.t)} style={[styles.typeChip, {backgroundColor: THEME.bg}, eventType === o.t && {backgroundColor: THEME.main, borderColor: THEME.main}]}>
+                        <CText fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, eventType === o.t && {color: 'white'}]}>{o.l}</CText>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {eventType === 'interval' && (
+                    <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 15}]} keyboardType="numeric" placeholder="며칠마다 반복할까요? (예: 3)" value={eventInterval} onChangeText={setEventInterval} />
+                  )}
+
+                  <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main, marginTop: 10}]} onPress={saveEvent}>
+                    <CText fontScale={appFontScale} style={styles.saveButtonText}>저장하기</CText>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
           </LinearGradient>
         </KeyboardAvoidingView>
       </Modal>
@@ -589,7 +752,7 @@ const styles = StyleSheet.create({
   stickerCheckIcon: { fontSize: 14 },
   todoText: { flex: 1, fontSize: 16, fontWeight: '600' },
   todoDelete: { padding: 5 },
-  diaryInputContainer: { borderRadius: 20, overflow: 'hidden', marginTop: 10, borderWidth: 1 },
+  diaryInputContainer: { borderRadius: 20, overflow: 'hidden', marginTop: 10, borderWidth: 1, minHeight: 200 },
   diaryInput: { flex: 1, padding: 20, textAlignVertical: 'top', fontSize: 16, lineHeight: 26 },
   editorOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
   editorBox: { padding: 25, borderRadius: 25 },
@@ -599,4 +762,9 @@ const styles = StyleSheet.create({
   typeSelectorRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15, justifyContent: 'center' },
   typeChip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: '#eee', margin: 4 },
   typeChipText: { fontWeight: '600', fontSize: 13 },
+  bottomTabBar: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingTop: 15, borderTopWidth: 1, borderTopColor: '#f0f0f0', marginTop: 10 },
+  tabBtn: { alignItems: 'center' },
+  // ⭐️ 다중 사진 UI 스타일
+  emptyPhotoBox: { backgroundColor: '#f9f9f9', borderRadius: 15, height: 250, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#eee', borderStyle: 'dashed', marginBottom: 15 },
+  photoDeleteBtn: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }
 });
