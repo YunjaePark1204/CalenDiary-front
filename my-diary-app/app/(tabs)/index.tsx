@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
-// ⭐️ 백엔드 서버 통신용 IP (꼭 본인 PC의 IP로 변경하세요!)
+// ⭐️ 백엔드 서버 통신용 IP (본인 PC의 실제 내부 IP로 변경 필수!)
 const SERVER_IP = '192.168.35.36'; 
 
 SplashScreen.preventAutoHideAsync();
@@ -38,10 +38,10 @@ const SOLAR_HOLIDAYS = { '01-01': '신정', '03-01': '3·1절', '05-05': '어린
 const LUNAR_HOLIDAYS = { '01-01': '설날', '04-08': '부처님오신날', '08-15': '추석' };
 
 const DEFAULT_API_STATS = [
-  { id: 'github', title: '🐙 GitHub', desc: '데이터 불러오는 중...', sub: '', bg: '#24292e' },
-  { id: 'val', title: '🔫 Valorant', desc: '데이터 불러오는 중...', sub: '', bg: '#ff4655' },
-  { id: 'lol', title: '⚔️ LoL', desc: '데이터 불러오는 중...', sub: '', bg: '#0bc6e3' },
-  { id: 'tft', title: '♟️ TFT', desc: '데이터 불러오는 중...', sub: '', bg: '#e6a822' }
+  { id: 'github', title: '🐙 GitHub', desc: '데이터 로딩 중...', sub: '', bg: '#24292e' },
+  { id: 'val', title: '🔫 Valorant', desc: '데이터 로딩 중...', sub: '', bg: '#ff4655' },
+  { id: 'lol', title: '⚔️ LoL', desc: '데이터 로딩 중...', sub: '', bg: '#0bc6e3' },
+  { id: 'tft', title: '♟️ TFT', desc: '데이터 로딩 중...', sub: '', bg: '#e6a822' }
 ];
 
 const getFontFamily = (style) => {
@@ -125,6 +125,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState(CATEGORIES[0]);
   const [collectionFilter, setCollectionFilter] = useState('ALL'); 
 
+  // ⭐️ 계정 정보 및 API 전적 상태
   const [githubId, setGithubId] = useState('');
   const [riotName, setRiotName] = useState('');
   const [riotTag, setRiotTag] = useState('');
@@ -138,7 +139,6 @@ export default function App() {
   
   const [isRoutineEditorVisible, setRoutineEditorVisible] = useState(false);
   const [isEventEditorVisible, setEventEditorVisible] = useState(false);
-  const [isCatManagerVisible, setCatManagerVisible] = useState(false);
   const [isDiaryPreview, setIsDiaryPreview] = useState(false);
 
   const [newRoutineIcon, setNewRoutineIcon] = useState('✨');
@@ -161,6 +161,7 @@ export default function App() {
   const [currentPhotos, setCurrentPhotos] = useState([]);
   const [newTodoText, setNewTodoText] = useState('');
 
+  // ⭐️ 날짜가 변경될 때마다 전적 API 호출
   useEffect(() => {
     const loadSettingsAndFetch = async () => {
       try {
@@ -173,39 +174,36 @@ export default function App() {
         if (storedRiotTag) setRiotTag(storedRiotTag);
 
         if (storedGithub && storedRiotName && storedRiotTag) {
-          fetchBackendStats(storedGithub, storedRiotName, storedRiotTag);
+          setApiStats(DEFAULT_API_STATS); 
+          fetchBackendStats(storedGithub, storedRiotName, storedRiotTag, selectedDate);
         } else {
-          setApiStats([
-            { id: 'info', title: '⚙️ 설정 필요', desc: '설정에서 계정을 연동해주세요.', sub: '', bg: '#95A5A6' }
-          ]);
+          setApiStats([{ id: 'info', title: '⚙️ 설정 필요', desc: '설정에서 계정을 연동해주세요.', sub: '', bg: '#95A5A6' }]);
         }
       } catch (e) {
-        console.warn('Load settings failed', e);
+        console.warn('설정 불러오기 실패', e);
       }
     };
     loadSettingsAndFetch();
-  }, []);
+  }, [selectedDate]); 
 
-  const fetchBackendStats = async (gitId, rName, rTag) => {
+  // ⭐️ 백엔드 호출 로직 (날짜 파라미터 포함)
+  const fetchBackendStats = async (gitId, rName, rTag, dateStr) => {
     try {
-      const url = `http://${SERVER_IP}:8080/api/stats?github=${gitId}&riot_name=${rName}&riot_tag=${rTag}`;
+      const url = `http://${SERVER_IP}:8080/api/stats?github=${gitId}&riot_name=${rName}&riot_tag=${rTag}&date=${dateStr}`;
       const res = await fetch(url);
       const data = await res.json();
 
       if (data && !data.error) {
         setApiStats([
-          { id: 'github', title: '🐙 GitHub', desc: `오늘 커밋: ${data.github.commits}개`, sub: '업데이트 완료', bg: '#24292e' },
+          { id: 'github', title: '🐙 GitHub', desc: `해당 날짜 커밋: ${data.github.commits}개`, sub: '조회 완료', bg: '#24292e' },
           { id: 'val', title: '🔫 Valorant', desc: `${data.valorant.rank} (${data.valorant.rr} RR)`, sub: '최근 랭크', bg: '#ff4655' },
           { id: 'lol', title: '⚔️ LoL', desc: data.lol.tier === 'Unranked' ? 'Unranked' : `${data.lol.tier} (${data.lol.lp} LP)`, sub: `${data.lol.wins}승 ${data.lol.loss}패`, bg: '#0bc6e3' },
           { id: 'tft', title: '♟️ TFT', desc: data.tft.tier === 'Unranked' ? 'Unranked' : `${data.tft.tier} (${data.tft.lp} LP)`, sub: `${data.tft.wins}승 ${data.tft.loss}패`, bg: '#e6a822' }
         ]);
       }
     } catch (e) {
-      console.warn('API 서버 연결 실패:', e);
-      // ⭐️ 백엔드 꺼졌을 때 에러 화면 띄우기
-      setApiStats([
-        { id: 'error', title: '🚨 연결 실패', desc: '백엔드 서버를 켜주세요!', sub: 'SERVER_IP도 확인!', bg: '#e74c3c' }
-      ]);
+      console.warn('API 연결 실패:', e);
+      setApiStats([{ id: 'error', title: '🚨 연결 실패', desc: '백엔드/Wi-Fi/IP/방화벽 확인!', sub: '재시도 필요', bg: '#e74c3c' }]);
     }
   };
 
@@ -214,9 +212,7 @@ export default function App() {
     await AsyncStorage.setItem('riotName', riotName);
     await AsyncStorage.setItem('riotTag', riotTag);
     setSettingsVisible(false);
-    
-    setApiStats(DEFAULT_API_STATS);
-    fetchBackendStats(githubId, riotName, riotTag);
+    fetchBackendStats(githubId, riotName, riotTag, selectedDate);
   };
 
   const markdownStyles = useMemo(() => ({
@@ -593,17 +589,6 @@ export default function App() {
                 )
               })}
             </ScrollView>
-            
-            {isCatManagerVisible && (
-              <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, backgroundColor: 'rgba(0,0,0,0.8)'}]}>
-                 <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
-                   <CText fontScale={appFontScale} style={[styles.editorTitle, {marginBottom: 20}]}>죄송합니다, 이 기능은 다음 버전에 추가될 예정입니다.</CText>
-                   <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={() => setCatManagerVisible(false)}>
-                     <CText fontScale={appFontScale} style={styles.saveButtonText}>돌아가기</CText>
-                   </TouchableOpacity>
-                 </View>
-              </View>
-            )}
 
             {isRoutineEditorVisible && (
               <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999}]}>
@@ -860,11 +845,8 @@ const styles = StyleSheet.create({
   stickerCheckIcon: { fontSize: 14 },
   todoText: { flex: 1, fontSize: 16, fontWeight: '600' },
   todoDelete: { padding: 5 },
-  
-  // ⭐️ 다이어리 높이 원래대로 200 복구
   diaryInputContainer: { borderRadius: 20, overflow: 'hidden', marginTop: 10, borderWidth: 1, minHeight: 200 },
   diaryInput: { flex: 1, padding: 20, textAlignVertical: 'top', fontSize: 16, lineHeight: 26 },
-  
   editorOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
   editorBox: { padding: 25, borderRadius: 25 },
   editorTitle: { fontSize: 20, fontWeight: 'bold' },

@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url" // ⭐️ 인코딩용
-	"time"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-resty/resty/v2"
@@ -14,8 +13,9 @@ import (
 
 // ⭐️ 서버 구동 전, 본인의 API 키와 토큰을 여기에 넣어주세요!
 const (
-	RiotAPIKey  = "RGAPI-288c3964-6b88-43f5-9c4c-6ca066c1f0df" // 라이엇 디벨로퍼 포털 발급 키
-	GithubToken = "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" // 깃허브 Personal Access Token
+	RiotAPIKey   = "RGAPI-288c3964-6b88-43f5-9c4c-6ca066c1f0df"       // 라이엇 디벨로퍼 포털 발급 키
+	GithubToken  = "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"     // 깃허브 Personal Access Token
+	HenrikAPIKey = "HDEV-a1e1dbd3-7dbe-48b7-8f7e-f93aeffadc84"      // HenrikDev API 키 (없으면 주석 처리)
 )
 
 type DailyStats struct {
@@ -61,7 +61,7 @@ func main() {
 		githubID := c.Query("github")
 		riotName := c.Query("riot_name")
 		riotTag := c.Query("riot_tag")
-		targetDate := c.Query("date") // ⭐️ 프론트엔드에서 보낸 날짜 파라미터 수신 (예: 2026-03-21)
+		targetDate := c.Query("date") 
 
 		// 유효성 검사
 		if githubID == "" || riotName == "" || riotTag == "" || targetDate == "" {
@@ -71,8 +71,8 @@ func main() {
 
 		client := resty.New()
 
-		// 1. 깃허브 호출 (특정 날짜 전달) 및 발로란트 전적 호출
-		githubStat := fetchGithubStatsForDate(client, githubID, targetDate) // 함수 이름 변경 및 파라미터 추가
+		// 1. 깃허브 호출 및 발로란트 전적 호출
+		githubStat := fetchGithubStatsForDate(client, githubID, targetDate)
 		valStat := fetchValorantStats(client, riotName, riotTag)
 
 		// 2. 롤, 롤체 전적 호출 (PUUID -> SummonerID -> Ranks 체이닝)
@@ -86,7 +86,6 @@ func main() {
 			}
 		}
 
-		// 최종 데이터 조합 및 리턴
 		response := DailyStats{
 			Github:   githubStat,
 			Valorant: valStat,
@@ -101,19 +100,25 @@ func main() {
 	r.Run(":8080")
 }
 
-// --- 헬퍼 함수들 ---
-
-// 1. ⭐️ 깃허브 특정 날짜 커밋 수 가져오기 (수정됨)
+// 1. 깃허브 특정 날짜 커밋 수 가져오기 
 func fetchGithubStatsForDate(client *resty.Client, githubID string, targetDate string) GithubStat {
-	// GitHub Search API 날짜 쿼리 형식: committer-date:YYYY-MM-DD
-	urlStr := fmt.Sprintf("https://api.github.com/search/commits?q=author:%s+committer-date:%s", githubID, targetDate)
+	query := fmt.Sprintf("author:%s committer-date:%s", githubID, targetDate)
+	encodedQuery := url.QueryEscape(query)
+	
+	urlStr := fmt.Sprintf("https://api.github.com/search/commits?q=%s", encodedQuery)
 
 	resp, err := client.R().
-		SetHeader("Authorization", "token "+GithubToken).
+		SetHeader("Authorization", "Bearer "+GithubToken).
+		SetHeader("Accept", "application/vnd.github.cloak-preview+json").
 		Get(urlStr)
 
 	if err != nil {
-		log.Println("GitHub API Error:", err)
+		log.Println("GitHub API Network Error:", err)
+		return GithubStat{Commits: 0}
+	}
+
+	if resp.StatusCode() != 200 {
+		log.Printf("🚨 GitHub API 에러 [%d]: %s\n", resp.StatusCode(), string(resp.Body()))
 		return GithubStat{Commits: 0}
 	}
 
@@ -128,15 +133,24 @@ func fetchGithubStatsForDate(client *resty.Client, githubID string, targetDate s
 	return GithubStat{Commits: totalCount}
 }
 
-// 2. 발로란트 랭크 가져오기 (인코딩 버그 수정됨)
+// 2. 발로란트 랭크 가져오기 (HenrikDev)
 func fetchValorantStats(client *resty.Client, name string, tag string) ValorantStat {
 	encodedName := url.PathEscape(name)
 	encodedTag := url.PathEscape(tag)
 	
 	urlStr := fmt.Sprintf("https://api.henrikdev.xyz/valorant/v1/mmr/ap/%s/%s", encodedName, encodedTag)
 
-	resp, err := client.R().Get(urlStr)
+	resp, err := client.R().
+		SetHeader("Authorization", HenrikAPIKey).
+		Get(urlStr)
+
 	if err != nil {
+		log.Println("Valorant Network Error:", err)
+		return ValorantStat{Rank: "Unranked", RR: 0}
+	}
+
+	if resp.StatusCode() != 200 {
+		log.Printf("🚨 발로란트 API 에러 [%d]: %s\n", resp.StatusCode(), string(resp.Body()))
 		return ValorantStat{Rank: "Unranked", RR: 0}
 	}
 
@@ -154,7 +168,7 @@ func fetchValorantStats(client *resty.Client, name string, tag string) ValorantS
 	return ValorantStat{Rank: rank, RR: int(rrFloat)}
 }
 
-// 3. 라이엇 PUUID 조회 (인코딩 버그 수정됨)
+// 3. 라이엇 PUUID 조회 (Riot ID 기반)
 func fetchPUUID(client *resty.Client, name string, tag string) string {
 	encodedName := url.PathEscape(name)
 	encodedTag := url.PathEscape(tag)
@@ -162,7 +176,14 @@ func fetchPUUID(client *resty.Client, name string, tag string) string {
 	urlStr := fmt.Sprintf("https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/%s/%s", encodedName, encodedTag)
 	
 	resp, err := client.R().SetHeader("X-Riot-Token", RiotAPIKey).Get(urlStr)
+	
 	if err != nil {
+		log.Println("PUUID Network Error:", err)
+		return ""
+	}
+
+	if resp.StatusCode() != 200 {
+		log.Printf("🚨 PUUID 조회 에러 [%d]: %s\n", resp.StatusCode(), string(resp.Body()))
 		return ""
 	}
 
@@ -177,11 +198,18 @@ func fetchPUUID(client *resty.Client, name string, tag string) string {
 
 // 4. 라이엇 Summoner ID 조회
 func fetchSummonerID(client *resty.Client, puuid string) string {
-	url := fmt.Sprintf("https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/%s", puuid)
-	resp, err := client.R().SetHeader("X-Riot-Token", RiotAPIKey).Get(url)
+	urlStr := fmt.Sprintf("https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/%s", puuid)
+	resp, err := client.R().SetHeader("X-Riot-Token", RiotAPIKey).Get(urlStr)
+	
 	if err != nil {
 		return ""
 	}
+
+	if resp.StatusCode() != 200 {
+		log.Printf("🚨 소환사 ID 조회 에러 [%d]: %s\n", resp.StatusCode(), string(resp.Body()))
+		return ""
+	}
+
 	var result map[string]interface{}
 	json.Unmarshal(resp.Body(), &result)
 	if id, ok := result["id"].(string); ok {
@@ -192,15 +220,24 @@ func fetchSummonerID(client *resty.Client, puuid string) string {
 
 // 5. 롤 & 롤체 랭크 정보 조회
 func fetchRiotRanks(client *resty.Client, summonerId string) (LolStat, TftStat) {
-	url := fmt.Sprintf("https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/%s", summonerId)
-	resp, err := client.R().SetHeader("X-Riot-Token", RiotAPIKey).Get(url)
+	urlStr := fmt.Sprintf("https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/%s", summonerId)
+	resp, err := client.R().SetHeader("X-Riot-Token", RiotAPIKey).Get(urlStr)
+	
 	var lol LolStat
 	var tft TftStat
+	
 	if err != nil {
 		return lol, tft
 	}
+
+	if resp.StatusCode() != 200 {
+		log.Printf("🚨 랭크 정보 조회 에러 [%d]: %s\n", resp.StatusCode(), string(resp.Body()))
+		return lol, tft
+	}
+
 	var data []map[string]interface{}
 	json.Unmarshal(resp.Body(), &data)
+	
 	for _, queue := range data {
 		queueType, _ := queue["queueType"].(string)
 		tierStr, _ := queue["tier"].(string)
@@ -209,6 +246,7 @@ func fetchRiotRanks(client *resty.Client, summonerId string) (LolStat, TftStat) 
 		lp, _ := queue["leaguePoints"].(float64)
 		wins, _ := queue["wins"].(float64)
 		losses, _ := queue["losses"].(float64)
+		
 		if queueType == "RANKED_SOLO_5x5" {
 			lol = LolStat{Tier: tier, LP: int(lp), Wins: int(wins), Loss: int(losses)}
 		} else if queueType == "RANKED_TFT" {
