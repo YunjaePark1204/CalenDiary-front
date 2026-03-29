@@ -6,10 +6,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Font from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as ImagePicker from 'expo-image-picker';
-// ⭐️ 마크다운 렌더링 라이브러리
 import Markdown from 'react-native-markdown-display';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
+
+// ⭐️ 백엔드 서버 통신용 IP (꼭 본인 PC의 IP로 변경하세요!)
+const SERVER_IP = '192.168.35.36'; 
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,7 +37,13 @@ const CATEGORIES = [
 const SOLAR_HOLIDAYS = { '01-01': '신정', '03-01': '3·1절', '05-05': '어린이날', '06-06': '현충일', '08-15': '광복절', '10-03': '개천절', '10-09': '한글날', '12-25': '크리스마스' };
 const LUNAR_HOLIDAYS = { '01-01': '설날', '04-08': '부처님오신날', '08-15': '추석' };
 
-// 폰트 자동 적용
+const DEFAULT_API_STATS = [
+  { id: 'github', title: '🐙 GitHub', desc: '데이터 불러오는 중...', sub: '', bg: '#24292e' },
+  { id: 'val', title: '🔫 Valorant', desc: '데이터 불러오는 중...', sub: '', bg: '#ff4655' },
+  { id: 'lol', title: '⚔️ LoL', desc: '데이터 불러오는 중...', sub: '', bg: '#0bc6e3' },
+  { id: 'tft', title: '♟️ TFT', desc: '데이터 불러오는 중...', sub: '', bg: '#e6a822' }
+];
+
 const getFontFamily = (style) => {
   const flatStyle = StyleSheet.flatten(style) || {};
   if (flatStyle.fontWeight === 'bold' || flatStyle.fontWeight === '700' || flatStyle.fontWeight === '900') return 'Pretendard-Bold';
@@ -116,6 +125,11 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState(CATEGORIES[0]);
   const [collectionFilter, setCollectionFilter] = useState('ALL'); 
 
+  const [githubId, setGithubId] = useState('');
+  const [riotName, setRiotName] = useState('');
+  const [riotTag, setRiotTag] = useState('');
+  const [apiStats, setApiStats] = useState(DEFAULT_API_STATS);
+
   const [customRoutines, setCustomRoutines] = useState([
     { id: 'r1', icon: '☀️', title: '아침 기상', tasks: ['물 한 잔 마시기', '가벼운 스트레칭'], categoryId: 'c1' },
     { id: 'r2', icon: '💻', title: '전공 빡공', tasks: ['컴퓨터 구조 복습', 'C++ 과제 확인'], categoryId: 'c3' },
@@ -125,7 +139,7 @@ export default function App() {
   const [isRoutineEditorVisible, setRoutineEditorVisible] = useState(false);
   const [isEventEditorVisible, setEventEditorVisible] = useState(false);
   const [isCatManagerVisible, setCatManagerVisible] = useState(false);
-  const [isDiaryPreview, setIsDiaryPreview] = useState(false); // ⭐️ 마크다운 미리보기 토글
+  const [isDiaryPreview, setIsDiaryPreview] = useState(false);
 
   const [newRoutineIcon, setNewRoutineIcon] = useState('✨');
   const [newRoutineTitle, setNewRoutineTitle] = useState('');
@@ -144,10 +158,67 @@ export default function App() {
   const [records, setRecords] = useState({});
   const [currentDiary, setCurrentDiary] = useState('');
   const [currentTodos, setCurrentTodos] = useState([]);
-  const [currentPhotos, setCurrentPhotos] = useState([]); // ⭐️ 다중 사진 배열로 변경
+  const [currentPhotos, setCurrentPhotos] = useState([]);
   const [newTodoText, setNewTodoText] = useState('');
 
-  // ⭐️ 마크다운 스타일 커스텀 적용 (폰트와 테마 색상 연동)
+  useEffect(() => {
+    const loadSettingsAndFetch = async () => {
+      try {
+        const storedGithub = await AsyncStorage.getItem('githubId');
+        const storedRiotName = await AsyncStorage.getItem('riotName');
+        const storedRiotTag = await AsyncStorage.getItem('riotTag');
+        
+        if (storedGithub) setGithubId(storedGithub);
+        if (storedRiotName) setRiotName(storedRiotName);
+        if (storedRiotTag) setRiotTag(storedRiotTag);
+
+        if (storedGithub && storedRiotName && storedRiotTag) {
+          fetchBackendStats(storedGithub, storedRiotName, storedRiotTag);
+        } else {
+          setApiStats([
+            { id: 'info', title: '⚙️ 설정 필요', desc: '설정에서 계정을 연동해주세요.', sub: '', bg: '#95A5A6' }
+          ]);
+        }
+      } catch (e) {
+        console.warn('Load settings failed', e);
+      }
+    };
+    loadSettingsAndFetch();
+  }, []);
+
+  const fetchBackendStats = async (gitId, rName, rTag) => {
+    try {
+      const url = `http://${SERVER_IP}:8080/api/stats?github=${gitId}&riot_name=${rName}&riot_tag=${rTag}`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data && !data.error) {
+        setApiStats([
+          { id: 'github', title: '🐙 GitHub', desc: `오늘 커밋: ${data.github.commits}개`, sub: '업데이트 완료', bg: '#24292e' },
+          { id: 'val', title: '🔫 Valorant', desc: `${data.valorant.rank} (${data.valorant.rr} RR)`, sub: '최근 랭크', bg: '#ff4655' },
+          { id: 'lol', title: '⚔️ LoL', desc: data.lol.tier === 'Unranked' ? 'Unranked' : `${data.lol.tier} (${data.lol.lp} LP)`, sub: `${data.lol.wins}승 ${data.lol.loss}패`, bg: '#0bc6e3' },
+          { id: 'tft', title: '♟️ TFT', desc: data.tft.tier === 'Unranked' ? 'Unranked' : `${data.tft.tier} (${data.tft.lp} LP)`, sub: `${data.tft.wins}승 ${data.tft.loss}패`, bg: '#e6a822' }
+        ]);
+      }
+    } catch (e) {
+      console.warn('API 서버 연결 실패:', e);
+      // ⭐️ 백엔드 꺼졌을 때 에러 화면 띄우기
+      setApiStats([
+        { id: 'error', title: '🚨 연결 실패', desc: '백엔드 서버를 켜주세요!', sub: 'SERVER_IP도 확인!', bg: '#e74c3c' }
+      ]);
+    }
+  };
+
+  const saveSettings = async () => {
+    await AsyncStorage.setItem('githubId', githubId);
+    await AsyncStorage.setItem('riotName', riotName);
+    await AsyncStorage.setItem('riotTag', riotTag);
+    setSettingsVisible(false);
+    
+    setApiStats(DEFAULT_API_STATS);
+    fetchBackendStats(githubId, riotName, riotTag);
+  };
+
   const markdownStyles = useMemo(() => ({
     body: { fontFamily: 'Pretendard-Regular', fontSize: 16 * appFontScale, color: THEME.text, lineHeight: 24 },
     heading1: { fontFamily: 'Pretendard-Bold', color: THEME.main, marginTop: 10, marginBottom: 5 },
@@ -159,11 +230,10 @@ export default function App() {
     list_item: { marginVertical: 3 }
   }), [THEME, appFontScale]);
 
-  // ⭐️ 여러 장 사진 선택 및 잘림 방지
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true, // 여러 장 선택 허용, 크롭 자동 비활성화됨
+      allowsMultipleSelection: true,
       quality: 0.8,
     });
     if (!result.canceled) {
@@ -179,9 +249,8 @@ export default function App() {
 
   const saveAndClose = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    // ⭐️ 다중 사진 배열 함께 저장
     setRecords(prev => ({ ...prev, [selectedDate]: { diary: currentDiary, todos: currentTodos, photos: currentPhotos } }));
-    setIsDiaryPreview(false); // 닫을 때 미리보기 초기화
+    setIsDiaryPreview(false);
     setModalVisible(false);
   }, [selectedDate, currentDiary, currentTodos, currentPhotos]);
 
@@ -301,7 +370,7 @@ export default function App() {
         setCurrentTodos([]); 
         setCurrentPhotos([]);
       }
-      setIsDiaryPreview(false); // 열 때 항상 편집 모드로
+      setIsDiaryPreview(false);
       setModalVisible(true);
     } else {
       setSelectedDate(dateString);
@@ -369,9 +438,22 @@ export default function App() {
         </View>
 
         <ScrollView style={styles.summaryContent} showsVerticalScrollIndicator={false}>
+          
+          <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 0, marginBottom: 10, color: THEME.text}]}>🎮 데브 & 랭크 요약</CText>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20, paddingBottom: 5}}>
+            {apiStats.map((stat) => (
+              <View key={stat.id} style={[styles.statCard, {backgroundColor: stat.bg}]}>
+                <CText fontScale={appFontScale} style={styles.statCardTitle}>{stat.title}</CText>
+                <CText fontScale={appFontScale} style={styles.statCardDesc}>{stat.desc}</CText>
+                <CText fontScale={appFontScale} style={styles.statCardSub}>{stat.sub}</CText>
+              </View>
+            ))}
+          </ScrollView>
+
           {todaySummaryEvents.length === 0 && todaySummaryRecords.todos.length === 0 && !todaySummaryRecords.diary && todaySummaryRecords.photos?.length === 0 && (
             <CText fontScale={appFontScale} style={[styles.emptySummaryText, {color: THEME.textDim}]}>일정이 없습니다. 두 번 눌러서 일기를 써보세요! ✨</CText>
           )}
+          
           {todaySummaryEvents.map((ev, idx) => (
             <View key={idx} style={[styles.summaryItemBox, {backgroundColor: THEME.bg}]}>
               <View style={[styles.summaryColorBar, {backgroundColor: ev.color}]} />
@@ -385,7 +467,6 @@ export default function App() {
             </View>
           ))}
           
-          {/* ⭐️ 메인 화면 요약: 노션급 마크다운 렌더링 적용 */}
           {todaySummaryRecords.diary ? (
             <View style={[styles.summaryDiaryBox, {backgroundColor: THEME.doneBg}]}>
               <Markdown style={markdownStyles}>
@@ -394,7 +475,6 @@ export default function App() {
             </View>
           ) : null}
 
-          {/* ⭐️ 메인 화면 사진 슬라이드 뷰 */}
           {todaySummaryRecords.photos && todaySummaryRecords.photos.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop: 15, marginBottom: 15}}>
               {todaySummaryRecords.photos.map((uri, idx) => (
@@ -423,34 +503,43 @@ export default function App() {
       {/* 설정 모달 */}
       <Modal visible={isSettingsVisible} animationType="fade" transparent={true}>
         <View style={styles.editorOverlay}>
-          <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20}}>
-              <CText fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>앱 설정 ⚙️</CText>
-              <TouchableOpacity onPress={() => setSettingsVisible(false)}><CText fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
-            </View>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex: 1, justifyContent: 'center'}}>
+            <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20}}>
+                <CText fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>앱 설정 ⚙️</CText>
+                <TouchableOpacity onPress={() => setSettingsVisible(false)}><CText fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
+              </View>
 
-            <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🔍 글씨 크기</CText>
-            <View style={{flexDirection: 'row', marginBottom: 20}}>
-              {[{label: '작게', scale: 0.85}, {label: '보통', scale: 1.0}, {label: '크게', scale: 1.15}].map(opt => (
-                <TouchableOpacity key={opt.label} onPress={() => setAppFontScale(opt.scale)} style={[styles.typeChip, {backgroundColor: THEME.bg, borderColor: '#eee'}, appFontScale === opt.scale && {backgroundColor: THEME.main, borderColor: THEME.main}]}>
-                  <CText fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, appFontScale === opt.scale && {color: 'white'}]}>{opt.label}</CText>
-                </TouchableOpacity>
-              ))}
-            </View>
+              <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🎮 계정 연동 (GitHub / Riot)</CText>
+              <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 10}]} placeholder="GitHub 아이디 (예: octocat)" value={githubId} onChangeText={setGithubId} />
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15}}>
+                <CTextInput fontScale={appFontScale} style={[styles.editorInput, {flex: 0.65, marginRight: 10}]} placeholder="라이엇 닉네임 (예: Hide on bush)" value={riotName} onChangeText={setRiotName} />
+                <CTextInput fontScale={appFontScale} style={[styles.editorInput, {flex: 0.35}]} placeholder="태그 (예: KR1)" value={riotTag} onChangeText={setRiotTag} />
+              </View>
 
-            <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 15}}>🎨 테마 색상 (Pantone)</CText>
-            <View style={{flexDirection: 'row', justifyContent: 'space-around', marginBottom: 25}}>
-              {Object.keys(PALETTES).map(themeKey => (
-                <TouchableOpacity key={themeKey} onPress={() => setAppTheme(themeKey)} 
-                  style={{ width: 45, height: 45, borderRadius: 22.5, backgroundColor: PALETTES[themeKey].main, borderWidth: appTheme === themeKey ? 3 : 0, borderColor: THEME.text }} 
-                />
-              ))}
-            </View>
+              <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🔍 글씨 크기</CText>
+              <View style={{flexDirection: 'row', marginBottom: 20}}>
+                {[{label: '작게', scale: 0.85}, {label: '보통', scale: 1.0}, {label: '크게', scale: 1.15}].map(opt => (
+                  <TouchableOpacity key={opt.label} onPress={() => setAppFontScale(opt.scale)} style={[styles.typeChip, {backgroundColor: THEME.bg, borderColor: '#eee'}, appFontScale === opt.scale && {backgroundColor: THEME.main, borderColor: THEME.main}]}>
+                    <CText fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, appFontScale === opt.scale && {color: 'white'}]}>{opt.label}</CText>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={() => setSettingsVisible(false)}>
-              <CText fontScale={appFontScale} style={styles.saveButtonText}>적용하기</CText>
-            </TouchableOpacity>
-          </View>
+              <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 15}}>🎨 테마 색상 (Pantone)</CText>
+              <View style={{flexDirection: 'row', justifyContent: 'space-around', marginBottom: 25}}>
+                {Object.keys(PALETTES).map(themeKey => (
+                  <TouchableOpacity key={themeKey} onPress={() => setAppTheme(themeKey)} 
+                    style={{ width: 45, height: 45, borderRadius: 22.5, backgroundColor: PALETTES[themeKey].main, borderWidth: appTheme === themeKey ? 3 : 0, borderColor: THEME.text }} 
+                  />
+                ))}
+              </View>
+
+              <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={saveSettings}>
+                <CText fontScale={appFontScale} style={styles.saveButtonText}>저장하기</CText>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -504,6 +593,17 @@ export default function App() {
                 )
               })}
             </ScrollView>
+            
+            {isCatManagerVisible && (
+              <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, backgroundColor: 'rgba(0,0,0,0.8)'}]}>
+                 <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
+                   <CText fontScale={appFontScale} style={[styles.editorTitle, {marginBottom: 20}]}>죄송합니다, 이 기능은 다음 버전에 추가될 예정입니다.</CText>
+                   <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={() => setCatManagerVisible(false)}>
+                     <CText fontScale={appFontScale} style={styles.saveButtonText}>돌아가기</CText>
+                   </TouchableOpacity>
+                 </View>
+              </View>
+            )}
 
             {isRoutineEditorVisible && (
               <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999}]}>
@@ -574,6 +674,18 @@ export default function App() {
               </View>
             </View>
             <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}>
+              
+              <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 5, marginBottom: 10, color: THEME.text}]}>🎮 오늘의 데브 & 랭크 기록</CText>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20, paddingBottom: 5}}>
+                {apiStats.map((stat) => (
+                  <View key={stat.id} style={[styles.statCard, {backgroundColor: stat.bg}]}>
+                    <CText fontScale={appFontScale} style={styles.statCardTitle}>{stat.title}</CText>
+                    <CText fontScale={appFontScale} style={styles.statCardDesc}>{stat.desc}</CText>
+                    <CText fontScale={appFontScale} style={styles.statCardSub}>{stat.sub}</CText>
+                  </View>
+                ))}
+              </ScrollView>
+
               <View style={styles.todayEventBox}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
                   <CText fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text}]}>✨ 캘린더 일정</CText>
@@ -583,7 +695,6 @@ export default function App() {
                   <View key={idx} style={{flexDirection: 'row', alignItems: 'center', marginBottom: 8}}>
                     <View style={[styles.tagBadge, { backgroundColor: ev.color + '20' }]}><CText fontScale={appFontScale} style={{color: ev.color, fontWeight: 'bold'}}>{ev.title}</CText></View>
                     <TouchableOpacity onPress={() => openEventEditor(ev)} style={{marginLeft: 10}}><CText fontScale={appFontScale}>✏️</CText></TouchableOpacity>
-                    {/* ⭐️ 삭제 기능 추가 */}
                     <TouchableOpacity onPress={() => deleteEvent(ev.id)} style={{marginLeft: 10}}><CText fontScale={appFontScale}>❌</CText></TouchableOpacity>
                   </View>
                 ))}
@@ -611,7 +722,6 @@ export default function App() {
                 </View>
               ))}
 
-              {/* ⭐️ 노션급 다이어리 (마크다운 적용) */}
               <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 25}}>
                 <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 0, color: THEME.text}]}>📖 다이어리</CText>
                 <TouchableOpacity onPress={() => setIsDiaryPreview(!isDiaryPreview)}>
@@ -631,7 +741,6 @@ export default function App() {
                 </View>
               )}
 
-              {/* ⭐️ 사진 첨부 영역을 맨 아래로 배치 */}
               <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 30, marginBottom: 10}}>
                 <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginBottom: 0, marginTop: 0, color: THEME.text}]}>📸 사진 기록</CText>
               </View>
@@ -654,7 +763,6 @@ export default function App() {
 
             </ScrollView>
 
-            {/* 일정 추가 서브 모달 */}
             {isEventEditorVisible && (
               <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999}]}>
                 <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
@@ -752,8 +860,11 @@ const styles = StyleSheet.create({
   stickerCheckIcon: { fontSize: 14 },
   todoText: { flex: 1, fontSize: 16, fontWeight: '600' },
   todoDelete: { padding: 5 },
+  
+  // ⭐️ 다이어리 높이 원래대로 200 복구
   diaryInputContainer: { borderRadius: 20, overflow: 'hidden', marginTop: 10, borderWidth: 1, minHeight: 200 },
   diaryInput: { flex: 1, padding: 20, textAlignVertical: 'top', fontSize: 16, lineHeight: 26 },
+  
   editorOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
   editorBox: { padding: 25, borderRadius: 25 },
   editorTitle: { fontSize: 20, fontWeight: 'bold' },
@@ -764,7 +875,10 @@ const styles = StyleSheet.create({
   typeChipText: { fontWeight: '600', fontSize: 13 },
   bottomTabBar: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingTop: 15, borderTopWidth: 1, borderTopColor: '#f0f0f0', marginTop: 10 },
   tabBtn: { alignItems: 'center' },
-  // ⭐️ 다중 사진 UI 스타일
   emptyPhotoBox: { backgroundColor: '#f9f9f9', borderRadius: 15, height: 250, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#eee', borderStyle: 'dashed', marginBottom: 15 },
-  photoDeleteBtn: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' }
+  photoDeleteBtn: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  statCard: { width: 150, padding: 15, borderRadius: 20, marginRight: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3 },
+  statCardTitle: { color: 'white', fontWeight: '900', fontSize: 16, marginBottom: 8 },
+  statCardDesc: { color: 'white', fontWeight: 'bold', fontSize: 14, marginBottom: 4 },
+  statCardSub: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
 });
