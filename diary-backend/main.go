@@ -134,38 +134,46 @@ func fetchGithubStatsForDate(client *resty.Client, githubID string, targetDate s
 }
 
 // 2. 발로란트 랭크 가져오기 (HenrikDev)
+// 2. 발로란트 랭크 가져오기 (KR -> AP 순차 탐색)
 func fetchValorantStats(client *resty.Client, name string, tag string) ValorantStat {
 	encodedName := url.PathEscape(name)
 	encodedTag := url.PathEscape(tag)
 	
-	urlStr := fmt.Sprintf("https://api.henrikdev.xyz/valorant/v1/mmr/ap/%s/%s", encodedName, encodedTag)
+	// ⭐️ 탐색할 서버 배열 (한국 먼저 찾고, 없으면 아시아 탐색)
+	regions := []string{"kr", "ap"}
 
-	resp, err := client.R().
-		SetHeader("Authorization", HenrikAPIKey).
-		Get(urlStr)
+	for _, region := range regions {
+		urlStr := fmt.Sprintf("https://api.henrikdev.xyz/valorant/v1/mmr/%s/%s/%s", region, encodedName, encodedTag)
 
-	if err != nil {
-		log.Println("Valorant Network Error:", err)
-		return ValorantStat{Rank: "Unranked", RR: 0}
+		resp, err := client.R().
+			SetHeader("Authorization", HenrikAPIKey).
+			Get(urlStr)
+
+		if err != nil {
+			log.Printf("Valorant Network Error [%s]: %v\n", region, err)
+			continue // 에러 나면 다음 서버로 넘어감
+		}
+
+		// ⭐️ 200 OK (성공)일 때만 데이터 파싱해서 리턴
+		if resp.StatusCode() == 200 {
+			var result map[string]interface{}
+			json.Unmarshal(resp.Body(), &result)
+
+			if data, ok := result["data"].(map[string]interface{}); ok {
+				rank, _ := data["currenttierpatched"].(string)
+				rrFloat, _ := data["ranking_in_tier"].(float64)
+				log.Printf("✅ 발로란트 [%s] 서버에서 전적 찾음!\n", region)
+				return ValorantStat{Rank: rank, RR: int(rrFloat)}
+			}
+		} else {
+			// 실패 로그 출력 (404 등)
+			log.Printf("🚨 발로란트 탐색 실패 [%s 서버] [%d]: %s\n", region, resp.StatusCode(), string(resp.Body()))
+		}
 	}
 
-	if resp.StatusCode() != 200 {
-		log.Printf("🚨 발로란트 API 에러 [%d]: %s\n", resp.StatusCode(), string(resp.Body()))
-		return ValorantStat{Rank: "Unranked", RR: 0}
-	}
-
-	var result map[string]interface{}
-	json.Unmarshal(resp.Body(), &result)
-
-	data, ok := result["data"].(map[string]interface{})
-	if !ok {
-		return ValorantStat{Rank: "Unranked", RR: 0}
-	}
-
-	rank, _ := data["currenttierpatched"].(string)
-	rrFloat, _ := data["ranking_in_tier"].(float64)
-
-	return ValorantStat{Rank: rank, RR: int(rrFloat)}
+	// kr, ap 두 곳 다 뒤졌는데도 없으면 Unranked 리턴
+	log.Println("❌ 두 서버 모두 전적 데이터가 없습니다.")
+	return ValorantStat{Rank: "Unranked", RR: 0}
 }
 
 // 3. 라이엇 PUUID 조회 (Riot ID 기반)

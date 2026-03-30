@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { StyleSheet, Text, View, Modal, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Dimensions, StatusBar, LayoutAnimation, UIManager, PanResponder, Image } from 'react-native';
+import { StyleSheet, Text, View, Modal, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Dimensions, StatusBar, LayoutAnimation, UIManager, PanResponder, Image, Switch } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Lunar } from 'lunar-javascript';
 import { LinearGradient } from 'expo-linear-gradient'; 
@@ -8,11 +8,12 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as ImagePicker from 'expo-image-picker';
 import Markdown from 'react-native-markdown-display';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LineChart } from 'react-native-chart-kit';
 
 const { width, height } = Dimensions.get('window');
 
 // ⭐️ 백엔드 서버 통신용 IP (본인 PC의 실제 내부 IP로 변경 필수!)
-const SERVER_IP = '192.168.35.36'; 
+const SERVER_IP = '172.30.162.83'; 
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,6 +35,7 @@ const CATEGORIES = [
   { id: 'c4', name: '🎮 게임', color: '#ba68c8' }
 ];
 
+// ⭐️ 방금 전 누락되었던 녀석들입니다! 다시 무사히 복구했습니다.
 const SOLAR_HOLIDAYS = { '01-01': '신정', '03-01': '3·1절', '05-05': '어린이날', '06-06': '현충일', '08-15': '광복절', '10-03': '개천절', '10-09': '한글날', '12-25': '크리스마스' };
 const LUNAR_HOLIDAYS = { '01-01': '설날', '04-08': '부처님오신날', '08-15': '추석' };
 
@@ -125,11 +127,17 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState(CATEGORIES[0]);
   const [collectionFilter, setCollectionFilter] = useState('ALL'); 
 
-  // ⭐️ 계정 정보 및 API 전적 상태
+  // 계정 정보 및 표시 설정 (토글용)
   const [githubId, setGithubId] = useState('');
   const [riotName, setRiotName] = useState('');
   const [riotTag, setRiotTag] = useState('');
+  const [showGithub, setShowGithub] = useState(true);
+  const [showValorant, setShowValorant] = useState(true);
+  const [showLol, setShowLol] = useState(true);
+  const [showTft, setShowTft] = useState(true);
+
   const [apiStats, setApiStats] = useState(DEFAULT_API_STATS);
+  const [rawApiData, setRawApiData] = useState(null);
 
   const [customRoutines, setCustomRoutines] = useState([
     { id: 'r1', icon: '☀️', title: '아침 기상', tasks: ['물 한 잔 마시기', '가벼운 스트레칭'], categoryId: 'c1' },
@@ -161,7 +169,22 @@ export default function App() {
   const [currentPhotos, setCurrentPhotos] = useState([]);
   const [newTodoText, setNewTodoText] = useState('');
 
-  // ⭐️ 날짜가 변경될 때마다 전적 API 호출
+  // 기기에 영구 저장된 다이어리 기록들 복구
+  useEffect(() => {
+    const loadRecords = async () => {
+      try {
+        const savedRecords = await AsyncStorage.getItem('diary_records');
+        if (savedRecords) {
+          setRecords(JSON.parse(savedRecords));
+        }
+      } catch (e) {
+        console.warn('기록 복구 실패', e);
+      }
+    };
+    loadRecords();
+  }, []);
+
+  // 날짜 변경 시 API 호출 & 설정 로드
   useEffect(() => {
     const loadSettingsAndFetch = async () => {
       try {
@@ -169,9 +192,18 @@ export default function App() {
         const storedRiotName = await AsyncStorage.getItem('riotName');
         const storedRiotTag = await AsyncStorage.getItem('riotTag');
         
+        const sGh = await AsyncStorage.getItem('showGithub');
+        const sVal = await AsyncStorage.getItem('showValorant');
+        const sLol = await AsyncStorage.getItem('showLol');
+        const sTft = await AsyncStorage.getItem('showTft');
+
         if (storedGithub) setGithubId(storedGithub);
         if (storedRiotName) setRiotName(storedRiotName);
         if (storedRiotTag) setRiotTag(storedRiotTag);
+        if (sGh !== null) setShowGithub(JSON.parse(sGh));
+        if (sVal !== null) setShowValorant(JSON.parse(sVal));
+        if (sLol !== null) setShowLol(JSON.parse(sLol));
+        if (sTft !== null) setShowTft(JSON.parse(sTft));
 
         if (storedGithub && storedRiotName && storedRiotTag) {
           setApiStats(DEFAULT_API_STATS); 
@@ -186,7 +218,6 @@ export default function App() {
     loadSettingsAndFetch();
   }, [selectedDate]); 
 
-  // ⭐️ 백엔드 호출 로직 (날짜 파라미터 포함)
   const fetchBackendStats = async (gitId, rName, rTag, dateStr) => {
     try {
       const url = `http://${SERVER_IP}:8080/api/stats?github=${gitId}&riot_name=${rName}&riot_tag=${rTag}&date=${dateStr}`;
@@ -194,6 +225,7 @@ export default function App() {
       const data = await res.json();
 
       if (data && !data.error) {
+        setRawApiData(data);
         setApiStats([
           { id: 'github', title: '🐙 GitHub', desc: `해당 날짜 커밋: ${data.github.commits}개`, sub: '조회 완료', bg: '#24292e' },
           { id: 'val', title: '🔫 Valorant', desc: `${data.valorant.rank} (${data.valorant.rr} RR)`, sub: '최근 랭크', bg: '#ff4655' },
@@ -202,15 +234,28 @@ export default function App() {
         ]);
       }
     } catch (e) {
-      console.warn('API 연결 실패:', e);
-      setApiStats([{ id: 'error', title: '🚨 연결 실패', desc: '백엔드/Wi-Fi/IP/방화벽 확인!', sub: '재시도 필요', bg: '#e74c3c' }]);
+      setRawApiData(null);
+      setApiStats([{ id: 'error', title: '🚨 연결 실패', desc: 'PC 백엔드 또는 Wi-Fi 확인!', sub: '에러 발생', bg: '#e74c3c' }]);
     }
   };
+
+  const visibleStats = apiStats.filter(stat => {
+    if (stat.id === 'github') return showGithub;
+    if (stat.id === 'val') return showValorant;
+    if (stat.id === 'lol') return showLol;
+    if (stat.id === 'tft') return showTft;
+    return true; 
+  });
 
   const saveSettings = async () => {
     await AsyncStorage.setItem('githubId', githubId);
     await AsyncStorage.setItem('riotName', riotName);
     await AsyncStorage.setItem('riotTag', riotTag);
+    await AsyncStorage.setItem('showGithub', JSON.stringify(showGithub));
+    await AsyncStorage.setItem('showValorant', JSON.stringify(showValorant));
+    await AsyncStorage.setItem('showLol', JSON.stringify(showLol));
+    await AsyncStorage.setItem('showTft', JSON.stringify(showTft));
+
     setSettingsVisible(false);
     fetchBackendStats(githubId, riotName, riotTag, selectedDate);
   };
@@ -245,10 +290,22 @@ export default function App() {
 
   const saveAndClose = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setRecords(prev => ({ ...prev, [selectedDate]: { diary: currentDiary, todos: currentTodos, photos: currentPhotos } }));
+    setRecords(prev => {
+      const newRecords = {
+        ...prev,
+        [selectedDate]: {
+          diary: currentDiary,
+          todos: currentTodos,
+          photos: currentPhotos,
+          apiStats: rawApiData 
+        }
+      };
+      AsyncStorage.setItem('diary_records', JSON.stringify(newRecords));
+      return newRecords;
+    });
     setIsDiaryPreview(false);
     setModalVisible(false);
-  }, [selectedDate, currentDiary, currentTodos, currentPhotos]);
+  }, [selectedDate, currentDiary, currentTodos, currentPhotos, rawApiData]);
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -379,7 +436,10 @@ export default function App() {
       const dateRecord = prev[date];
       if (!dateRecord) return prev;
       const updatedTodos = dateRecord.todos.map(t => t.id === todoId ? { ...t, done: !t.done } : t);
-      return { ...prev, [date]: { ...dateRecord, todos: updatedTodos } };
+      
+      const newRecords = { ...prev, [date]: { ...dateRecord, todos: updatedTodos } };
+      AsyncStorage.setItem('diary_records', JSON.stringify(newRecords)); 
+      return newRecords;
     });
   };
 
@@ -399,6 +459,9 @@ export default function App() {
       return todos.some(t => t.category && t.category.id === collectionFilter);
     }).sort((a,b) => b.localeCompare(a));
   }, [records, collectionFilter]);
+
+  const graphDates = useMemo(() => Object.keys(records).sort().slice(-7), [records]); 
+  const chartLabels = graphDates.map(d => d.substring(5)); 
 
   if (!fontsLoaded) return null;
 
@@ -435,16 +498,20 @@ export default function App() {
 
         <ScrollView style={styles.summaryContent} showsVerticalScrollIndicator={false}>
           
-          <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 0, marginBottom: 10, color: THEME.text}]}>🎮 데브 & 랭크 요약</CText>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20, paddingBottom: 5}}>
-            {apiStats.map((stat) => (
-              <View key={stat.id} style={[styles.statCard, {backgroundColor: stat.bg}]}>
-                <CText fontScale={appFontScale} style={styles.statCardTitle}>{stat.title}</CText>
-                <CText fontScale={appFontScale} style={styles.statCardDesc}>{stat.desc}</CText>
-                <CText fontScale={appFontScale} style={styles.statCardSub}>{stat.sub}</CText>
-              </View>
-            ))}
-          </ScrollView>
+          {(showGithub || showValorant || showLol || showTft) && (
+            <>
+              <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 0, marginBottom: 10, color: THEME.text}]}>🎮 데브 & 랭크 요약</CText>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20, paddingBottom: 5}}>
+                {visibleStats.map((stat) => (
+                  <View key={stat.id} style={[styles.statCard, {backgroundColor: stat.bg}]}>
+                    <CText fontScale={appFontScale} style={styles.statCardTitle}>{stat.title}</CText>
+                    <CText fontScale={appFontScale} style={styles.statCardDesc}>{stat.desc}</CText>
+                    <CText fontScale={appFontScale} style={styles.statCardSub}>{stat.sub}</CText>
+                  </View>
+                ))}
+              </ScrollView>
+            </>
+          )}
 
           {todaySummaryEvents.length === 0 && todaySummaryRecords.todos.length === 0 && !todaySummaryRecords.diary && todaySummaryRecords.photos?.length === 0 && (
             <CText fontScale={appFontScale} style={[styles.emptySummaryText, {color: THEME.textDim}]}>일정이 없습니다. 두 번 눌러서 일기를 써보세요! ✨</CText>
@@ -496,79 +563,147 @@ export default function App() {
         </View>
       </View>
 
-      {/* 설정 모달 */}
       <Modal visible={isSettingsVisible} animationType="fade" transparent={true}>
         <View style={styles.editorOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex: 1, justifyContent: 'center'}}>
             <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
-              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20}}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15}}>
                 <CText fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>앱 설정 ⚙️</CText>
                 <TouchableOpacity onPress={() => setSettingsVisible(false)}><CText fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
               </View>
 
-              <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🎮 계정 연동 (GitHub / Riot)</CText>
-              <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 10}]} placeholder="GitHub 아이디 (예: octocat)" value={githubId} onChangeText={setGithubId} />
-              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15}}>
-                <CTextInput fontScale={appFontScale} style={[styles.editorInput, {flex: 0.65, marginRight: 10}]} placeholder="라이엇 닉네임 (예: Hide on bush)" value={riotName} onChangeText={setRiotName} />
-                <CTextInput fontScale={appFontScale} style={[styles.editorInput, {flex: 0.35}]} placeholder="태그 (예: KR1)" value={riotTag} onChangeText={setRiotTag} />
-              </View>
+              <ScrollView style={{maxHeight: height * 0.7}} showsVerticalScrollIndicator={false}>
+                <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🎮 계정 연동 (GitHub / Riot)</CText>
+                <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 10}]} placeholder="GitHub 아이디 (예: octocat)" value={githubId} onChangeText={setGithubId} />
+                <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15}}>
+                  <CTextInput fontScale={appFontScale} style={[styles.editorInput, {flex: 0.65, marginRight: 10}]} placeholder="라이엇 닉네임 (예: Hide on bush)" value={riotName} onChangeText={setRiotName} />
+                  <CTextInput fontScale={appFontScale} style={[styles.editorInput, {flex: 0.35}]} placeholder="태그 (예: KR1)" value={riotTag} onChangeText={setRiotTag} />
+                </View>
 
-              <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>🔍 글씨 크기</CText>
-              <View style={{flexDirection: 'row', marginBottom: 20}}>
-                {[{label: '작게', scale: 0.85}, {label: '보통', scale: 1.0}, {label: '크게', scale: 1.15}].map(opt => (
-                  <TouchableOpacity key={opt.label} onPress={() => setAppFontScale(opt.scale)} style={[styles.typeChip, {backgroundColor: THEME.bg, borderColor: '#eee'}, appFontScale === opt.scale && {backgroundColor: THEME.main, borderColor: THEME.main}]}>
-                    <CText fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, appFontScale === opt.scale && {color: 'white'}]}>{opt.label}</CText>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 10}}>👀 통계 표시 설정</CText>
+                <View style={styles.switchRow}><CText fontScale={appFontScale}>🐙 GitHub 잔디</CText><Switch value={showGithub} onValueChange={setShowGithub} /></View>
+                <View style={styles.switchRow}><CText fontScale={appFontScale}>🔫 Valorant 티어</CText><Switch value={showValorant} onValueChange={setShowValorant} /></View>
+                <View style={styles.switchRow}><CText fontScale={appFontScale}>⚔️ LoL 티어</CText><Switch value={showLol} onValueChange={setShowLol} /></View>
+                <View style={styles.switchRow}><CText fontScale={appFontScale}>♟️ TFT 티어</CText><Switch value={showTft} onValueChange={setShowTft} /></View>
 
-              <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 15}}>🎨 테마 색상 (Pantone)</CText>
-              <View style={{flexDirection: 'row', justifyContent: 'space-around', marginBottom: 25}}>
-                {Object.keys(PALETTES).map(themeKey => (
-                  <TouchableOpacity key={themeKey} onPress={() => setAppTheme(themeKey)} 
-                    style={{ width: 45, height: 45, borderRadius: 22.5, backgroundColor: PALETTES[themeKey].main, borderWidth: appTheme === themeKey ? 3 : 0, borderColor: THEME.text }} 
-                  />
-                ))}
-              </View>
+                <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginTop: 15, marginBottom: 10}}>🔍 글씨 크기</CText>
+                <View style={{flexDirection: 'row', marginBottom: 20}}>
+                  {[{label: '작게', scale: 0.85}, {label: '보통', scale: 1.0}, {label: '크게', scale: 1.15}].map(opt => (
+                    <TouchableOpacity key={opt.label} onPress={() => setAppFontScale(opt.scale)} style={[styles.typeChip, {backgroundColor: THEME.bg, borderColor: '#eee'}, appFontScale === opt.scale && {backgroundColor: THEME.main, borderColor: THEME.main}]}>
+                      <CText fontScale={appFontScale} style={[styles.typeChipText, {color: THEME.textDim}, appFontScale === opt.scale && {color: 'white'}]}>{opt.label}</CText>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-              <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={saveSettings}>
-                <CText fontScale={appFontScale} style={styles.saveButtonText}>저장하기</CText>
-              </TouchableOpacity>
+                <CText fontScale={appFontScale} style={{fontWeight: 'bold', color: THEME.text, marginBottom: 15}}>🎨 테마 색상 (Pantone)</CText>
+                <View style={{flexDirection: 'row', justifyContent: 'space-around', marginBottom: 25}}>
+                  {Object.keys(PALETTES).map(themeKey => (
+                    <TouchableOpacity key={themeKey} onPress={() => setAppTheme(themeKey)} 
+                      style={{ width: 45, height: 45, borderRadius: 22.5, backgroundColor: PALETTES[themeKey].main, borderWidth: appTheme === themeKey ? 3 : 0, borderColor: THEME.text }} 
+                    />
+                  ))}
+                </View>
+
+                <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={saveSettings}>
+                  <CText fontScale={appFontScale} style={styles.saveButtonText}>설정 저장하기</CText>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
 
-      {/* 할 일 모아보기 모달 */}
       <Modal visible={isTodoModalVisible} animationType="slide" presentationStyle="pageSheet">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: THEME.bgModal }}>
           <LinearGradient colors={[`${THEME.main}10`, THEME.bgModal]} style={styles.modalBgGradient}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderInner}>
-                <CText fontScale={appFontScale} style={[styles.modalTitle, {color: THEME.text}]}>할 일 모아보기 📋</CText>
+                <CText fontScale={appFontScale} style={[styles.modalTitle, {color: THEME.text}]}>데이터 모아보기 📊</CText>
                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                  <TouchableOpacity onPress={() => setRoutineEditorVisible(true)} style={{marginRight: 15}}>
-                    <CText fontScale={appFontScale} style={{color: THEME.main, fontWeight: 'bold'}}>⚙️ 루틴 설정</CText>
-                  </TouchableOpacity>
                   <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main, width: 80}]} onPress={() => setTodoModalVisible(false)}>
                     <CText fontScale={appFontScale} style={styles.saveButtonText}>닫기</CText>
                   </TouchableOpacity>
                 </View>
               </View>
             </View>
-            <View style={{paddingHorizontal: 20, marginBottom: 15}}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{flexDirection: 'row'}}>
-                <TouchableOpacity onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCollectionFilter('ALL'); }} style={[styles.filterChip, collectionFilter === 'ALL' && {backgroundColor: THEME.text}]}>
-                  <CText fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === 'ALL' && {color: 'white'}]}>전체 보기</CText>
-                </TouchableOpacity>
-                {CATEGORIES.map(cat => (
-                  <TouchableOpacity key={cat.id} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCollectionFilter(cat.id); }} style={[styles.filterChip, collectionFilter === cat.id && {backgroundColor: cat.color, borderColor: cat.color}]}>
-                    <CText fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === cat.id && {color: 'white'}]}>{cat.name}</CText>
+
+            <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 50 }}>
+              
+              <CText fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text, marginBottom: 15}]}>📈 최근 기록 변화</CText>
+              
+              {chartLabels.length < 2 ? (
+                <View style={styles.emptyGraphBox}>
+                  <CText fontScale={appFontScale} style={{color: THEME.textDim, textAlign: 'center', lineHeight: 22}}>
+                    최소 2일 이상의 다이어리를 저장해야 꺾은선 그래프가 그려집니다.{"\n"}(현재 저장된 기록: {chartLabels.length}일)
+                  </CText>
+                </View>
+              ) : (
+                <View style={{marginBottom: 20}}>
+                  {showGithub && (
+                    <View style={styles.chartContainer}>
+                      <CText fontScale={appFontScale} style={styles.chartTitle}>🐙 GitHub 커밋 수</CText>
+                      <LineChart
+                        data={{ labels: chartLabels, datasets: [{ data: graphDates.map(d => records[d].apiStats?.github?.commits || 0) }] }}
+                        width={width - 40} height={220}
+                        yAxisSuffix="개"
+                        chartConfig={{ backgroundColor: '#24292e', backgroundGradientFrom: '#24292e', backgroundGradientTo: '#1b1f23', decimalPlaces: 0, color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`, labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})` }}
+                        bezier style={{ borderRadius: 16 }}
+                      />
+                    </View>
+                  )}
+                  {showValorant && (
+                    <View style={styles.chartContainer}>
+                      <CText fontScale={appFontScale} style={styles.chartTitle}>🔫 발로란트 RR 변화</CText>
+                      <LineChart
+                        data={{ labels: chartLabels, datasets: [{ data: graphDates.map(d => records[d].apiStats?.valorant?.rr || 0) }] }}
+                        width={width - 40} height={220}
+                        yAxisSuffix=" RR"
+                        chartConfig={{ backgroundColor: '#ff4655', backgroundGradientFrom: '#ff4655', backgroundGradientTo: '#d63447', decimalPlaces: 0, color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`, labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})` }}
+                        bezier style={{ borderRadius: 16 }}
+                      />
+                    </View>
+                  )}
+                  {showLol && (
+                    <View style={styles.chartContainer}>
+                      <CText fontScale={appFontScale} style={styles.chartTitle}>⚔️ LoL LP 변화</CText>
+                      <LineChart
+                        data={{ labels: chartLabels, datasets: [{ data: graphDates.map(d => records[d].apiStats?.lol?.lp || 0) }] }}
+                        width={width - 40} height={220}
+                        yAxisSuffix=" LP"
+                        chartConfig={{ backgroundColor: '#0bc6e3', backgroundGradientFrom: '#0bc6e3', backgroundGradientTo: '#09a4bb', decimalPlaces: 0, color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`, labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})` }}
+                        bezier style={{ borderRadius: 16 }}
+                      />
+                    </View>
+                  )}
+                  {showTft && (
+                    <View style={styles.chartContainer}>
+                      <CText fontScale={appFontScale} style={styles.chartTitle}>♟️ TFT LP 변화</CText>
+                      <LineChart
+                        data={{ labels: chartLabels, datasets: [{ data: graphDates.map(d => records[d].apiStats?.tft?.lp || 0) }] }}
+                        width={width - 40} height={220}
+                        yAxisSuffix=" LP"
+                        chartConfig={{ backgroundColor: '#e6a822', backgroundGradientFrom: '#e6a822', backgroundGradientTo: '#c7911b', decimalPlaces: 0, color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`, labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})` }}
+                        bezier style={{ borderRadius: 16 }}
+                      />
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <CText fontScale={appFontScale} style={[styles.sectionTitle, {color: THEME.text, marginBottom: 15, marginTop: 10}]}>📋 할 일 달성 기록</CText>
+              <View style={{paddingHorizontal: 5, marginBottom: 15}}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{flexDirection: 'row'}}>
+                  <TouchableOpacity onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCollectionFilter('ALL'); }} style={[styles.filterChip, collectionFilter === 'ALL' && {backgroundColor: THEME.text}]}>
+                    <CText fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === 'ALL' && {color: 'white'}]}>전체 보기</CText>
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-            <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
+                  {CATEGORIES.map(cat => (
+                    <TouchableOpacity key={cat.id} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCollectionFilter(cat.id); }} style={[styles.filterChip, collectionFilter === cat.id && {backgroundColor: cat.color, borderColor: cat.color}]}>
+                      <CText fontScale={appFontScale} style={[styles.filterChipText, collectionFilter === cat.id && {color: 'white'}]}>{cat.name}</CText>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
               {filteredDatesWithTodos.map(date => {
                 const displayTodos = collectionFilter === 'ALL' ? records[date].todos : records[date].todos.filter(t => t.category && t.category.id === collectionFilter);
                 if (displayTodos.length === 0) return null;
@@ -589,37 +724,10 @@ export default function App() {
                 )
               })}
             </ScrollView>
-
-            {isRoutineEditorVisible && (
-              <View style={[styles.editorOverlay, {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999}]}>
-                <View style={[styles.editorBox, {backgroundColor: THEME.bgModal}]}>
-                  <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20}}>
-                    <CText fontScale={appFontScale} style={[styles.editorTitle, {color: THEME.text}]}>루틴 관리 ⚡</CText>
-                    <TouchableOpacity onPress={() => setRoutineEditorVisible(false)}><CText fontScale={appFontScale} style={{fontSize: 20}}>❌</CText></TouchableOpacity>
-                  </View>
-                  <ScrollView style={{maxHeight: 200}}>
-                    {customRoutines.map(r => (
-                      <View key={r.id} style={styles.editorRoutineRow}>
-                        <CText fontScale={appFontScale} style={{flex:1, fontWeight:'bold'}}>{r.icon} {r.title}</CText>
-                        <TouchableOpacity onPress={() => deleteRoutine(r.id)}><CText fontScale={appFontScale} style={{color:'red'}}>삭제</CText></TouchableOpacity>
-                      </View>
-                    ))}
-                  </ScrollView>
-                  <View style={{marginTop: 15}}>
-                    <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 10}]} placeholder="루틴 이름 (예: 아침 운동)" value={newRoutineTitle} onChangeText={setNewRoutineTitle} />
-                    <CTextInput fontScale={appFontScale} style={[styles.editorInput, {marginBottom: 10}]} placeholder="할 일 목록 (쉼표로 구분)" value={newRoutineTasksStr} onChangeText={setNewRoutineTasksStr} />
-                    <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main}]} onPress={addNewRoutine}>
-                      <CText fontScale={appFontScale} style={styles.saveButtonText}>추가하기</CText>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            )}
           </LinearGradient>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* 월 선택 바텀 시트 */}
       <Modal visible={isMonthPickerVisible} transparent={true} animationType="slide">
         <View style={styles.bottomSheetOverlay}>
           <TouchableOpacity style={{flex: 1}} onPress={() => setMonthPickerVisible(false)} />
@@ -645,7 +753,6 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* 상세 다이어리 모달 */}
       <Modal visible={isModalVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={saveAndClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: THEME.bgModal }}>
           <LinearGradient colors={[`${THEME.main}10`, THEME.bgModal]} style={styles.modalBgGradient}>
@@ -654,22 +761,26 @@ export default function App() {
               <View style={styles.modalHeaderInner}>
                 <CText fontScale={appFontScale} style={[styles.modalTitle, {color: THEME.text}]}>{selectedDate}</CText>
                 <TouchableOpacity style={[styles.saveButton, {backgroundColor: THEME.main, width: 80}]} onPress={saveAndClose}>
-                  <CText fontScale={appFontScale} style={styles.saveButtonText}>완료</CText>
+                  <CText fontScale={appFontScale} style={styles.saveButtonText}>저장</CText>
                 </TouchableOpacity>
               </View>
             </View>
             <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}>
               
-              <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 5, marginBottom: 10, color: THEME.text}]}>🎮 오늘의 데브 & 랭크 기록</CText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20, paddingBottom: 5}}>
-                {apiStats.map((stat) => (
-                  <View key={stat.id} style={[styles.statCard, {backgroundColor: stat.bg}]}>
-                    <CText fontScale={appFontScale} style={styles.statCardTitle}>{stat.title}</CText>
-                    <CText fontScale={appFontScale} style={styles.statCardDesc}>{stat.desc}</CText>
-                    <CText fontScale={appFontScale} style={styles.statCardSub}>{stat.sub}</CText>
-                  </View>
-                ))}
-              </ScrollView>
+              {(showGithub || showValorant || showLol || showTft) && (
+                <>
+                  <CText fontScale={appFontScale} style={[styles.sectionTitle, {marginTop: 5, marginBottom: 10, color: THEME.text}]}>🎮 오늘의 데브 & 랭크 기록</CText>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20, paddingBottom: 5}}>
+                    {visibleStats.map((stat) => (
+                      <View key={stat.id} style={[styles.statCard, {backgroundColor: stat.bg}]}>
+                        <CText fontScale={appFontScale} style={styles.statCardTitle}>{stat.title}</CText>
+                        <CText fontScale={appFontScale} style={styles.statCardDesc}>{stat.desc}</CText>
+                        <CText fontScale={appFontScale} style={styles.statCardSub}>{stat.sub}</CText>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </>
+              )}
 
               <View style={styles.todayEventBox}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
@@ -790,7 +901,6 @@ const styles = StyleSheet.create({
   floatingHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, paddingHorizontal: 20 },
   headerButton: { backgroundColor: 'white', paddingVertical: 10, paddingHorizontal: 25, borderRadius: 25, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.15, shadowRadius: 5, elevation: 5 },
   headerTitle: { fontSize: 18, fontWeight: '900' },
-  collectionBtn: { backgroundColor: 'white', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3, elevation: 3 },
   calendarStyle: { backgroundColor: 'transparent', paddingHorizontal: 5 },
   dayCell: { width: 40, height: 44, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4, borderRadius: 12 },
   dayText: { fontSize: 15, fontWeight: '700' },
@@ -810,7 +920,6 @@ const styles = StyleSheet.create({
   summaryColorBar: { width: 4, height: '100%', borderRadius: 2, marginRight: 10 },
   summaryItemText: { fontSize: 15, fontWeight: '600', flex: 1 },
   summaryDiaryBox: { padding: 15, borderRadius: 12, marginTop: 5 },
-  summaryDiaryText: { fontSize: 14, lineHeight: 22 },
   filterChip: { backgroundColor: 'white', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: '#eee', marginRight: 8, shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.05, elevation: 2 },
   filterChipText: { fontSize: 13, fontWeight: '700' },
   bottomSheetOverlay: { flex: 1, backgroundColor: 'rgba(91,77,77,0.3)', justifyContent: 'flex-end' },
@@ -863,4 +972,8 @@ const styles = StyleSheet.create({
   statCardTitle: { color: 'white', fontWeight: '900', fontSize: 16, marginBottom: 8 },
   statCardDesc: { color: 'white', fontWeight: 'bold', fontSize: 14, marginBottom: 4 },
   statCardSub: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingHorizontal: 5 },
+  emptyGraphBox: { padding: 30, backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: 20, alignItems: 'center', marginBottom: 20 },
+  chartContainer: { marginBottom: 20 },
+  chartTitle: { fontSize: 16, fontWeight: 'bold', color: '#5B4D4D', marginBottom: 8, marginLeft: 5 }
 });
