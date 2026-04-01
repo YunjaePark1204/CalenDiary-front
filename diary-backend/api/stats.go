@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,9 +35,9 @@ type TftStat struct {
 	Loss int    `json:"loss"`
 }
 
-// ⭐️ Vercel 서버리스 진입점 (여기서부터 실행됨)
+// ⭐️ Vercel 서버리스 진입점 (절대 포트를 열지 마세요. Vercel이 알아서 이 함수만 호출합니다!)
 func Handler(w http.ResponseWriter, r *http.Request) {
-	// CORS 에러 방지 (앱에서 접근 허용)
+	// CORS 에러 방지
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	w.Header().Set("Content-Type", "application/json")
@@ -58,7 +57,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ⭐️ Vercel에 등록할 환경변수 (절대 코드에 키를 직접 적지 마세요!)
+	// Vercel Environment Variables에서 키를 가져옴
 	riotAPIKey := os.Getenv("RIOT_API_KEY")
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	henrikAPIKey := os.Getenv("HENRIK_API_KEY")
@@ -87,7 +86,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// --- 헬퍼 함수들 (API 키를 인자로 받도록 수정됨) ---
+// --- 헬퍼 함수들 ---
 
 func fetchGithubStatsForDate(client *resty.Client, githubID, targetDate, token string) GithubStat {
 	query := fmt.Sprintf("author:%s committer-date:%s", githubID, targetDate)
@@ -111,7 +110,7 @@ func fetchGithubStatsForDate(client *resty.Client, githubID, targetDate, token s
 
 func fetchValorantStats(client *resty.Client, name, tag, apiKey string) ValorantStat {
 	encodedName, encodedTag := url.PathEscape(name), url.PathEscape(tag)
-	regions := []string{"kr", "ap"} // 한국/아시아 순차 탐색
+	regions := []string{"kr", "ap"}
 
 	for _, region := range regions {
 		urlStr := fmt.Sprintf("https://api.henrikdev.xyz/valorant/v1/mmr/%s/%s/%s", region, encodedName, encodedTag)
