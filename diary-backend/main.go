@@ -1,4 +1,4 @@
-package api
+package main
 
 import (
 	"encoding/json"
@@ -35,9 +35,24 @@ type TftStat struct {
 	Loss int    `json:"loss"`
 }
 
-// ⭐️ Vercel 서버리스 진입점 (절대 포트를 열지 마세요. Vercel이 알아서 이 함수만 호출합니다!)
-func Handler(w http.ResponseWriter, r *http.Request) {
-	// CORS 에러 방지
+// ⭐️ Vercel이 이 main 함수를 실행해서 서버를 켭니다!
+func main() {
+	// 우리가 설정한 API 주소(/api/stats)로 요청이 오면 핸들러 함수 실행!
+	http.HandleFunc("/api/stats", statsHandler)
+
+	// Vercel이 자동으로 포트를 할당해줍니다. 없으면 8080 사용.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	fmt.Println("🚀 Vercel 클라우드에서 백엔드 서버가 실행되었습니다! (Port:", port, ")")
+	http.ListenAndServe(":"+port, nil)
+}
+
+// ⭐️ 실제 전적 데이터를 가져오는 핵심 로직
+func statsHandler(w http.ResponseWriter, r *http.Request) {
+	// CORS 에러 방지 (React Native 앱에서 접근 허용)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	w.Header().Set("Content-Type", "application/json")
@@ -57,7 +72,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Vercel Environment Variables에서 키를 가져옴
+	// ⭐️ Vercel 웹사이트 설정에 넣어둔 키들을 불러옵니다
 	riotAPIKey := os.Getenv("RIOT_API_KEY")
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	henrikAPIKey := os.Getenv("HENRIK_API_KEY")
@@ -86,7 +101,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// --- 헬퍼 함수들 ---
+// --- 헬퍼 함수들 (이전과 동일) ---
 
 func fetchGithubStatsForDate(client *resty.Client, githubID, targetDate, token string) GithubStat {
 	query := fmt.Sprintf("author:%s committer-date:%s", githubID, targetDate)
