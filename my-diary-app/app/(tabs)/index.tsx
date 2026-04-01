@@ -13,7 +13,7 @@ import { Audio } from 'expo-av';
 
 const { width, height } = Dimensions.get('window');
 
-const SERVER_IP = '172.30.158.82'; // ⭐️ 본인 PC의 실제 내부 IP로 꼭 변경하세요!
+const SERVER_IP = 'calen-diary-front.vercel.app'; // ⭐️ 본인 PC의 실제 내부 IP로 꼭 변경하세요!
 
 SplashScreen.preventAutoHideAsync();
 
@@ -298,7 +298,7 @@ export default function App() {
 
   const fetchBackendStats = async (gitId, rName, rTag, dateStr) => {
     try {
-      const url = `http://${SERVER_IP}:8080/api/stats?github=${gitId}&riot_name=${rName}&riot_tag=${rTag}&date=${dateStr}`;
+      const url = `http://${SERVER_IP}/api/stats?github=${gitId}&riot_name=${rName}&riot_tag=${rTag}&date=${dateStr}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data && !data.error) {
